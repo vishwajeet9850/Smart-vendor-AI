@@ -1,241 +1,229 @@
-# 🎓 EduSathi AI
+# 🛒 SmartVendor AI
 
-> **An AI-powered multilingual tutor that understands the student, not just the question.**
+> **Transforming any Android smartphone into an AI-powered Point of Sale (POS) system for small retailers.**
 
 ![Status](https://img.shields.io/badge/Status-In%20Development-orange)
-![Hackathon](https://img.shields.io/badge/SKH-2026-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
-![Built With](https://img.shields.io/badge/Built%20With-React%20%7C%20FastAPI%20%7C%20Gemini%20%7C%20Ollama-success)
+![Hackathon](https://img.shields.io/badge/SKH%202026-Hackathon-blue)
+![Platform](https://img.shields.io/badge/Platform-Android-success)
+![AI](https://img.shields.io/badge/AI-YOLOv8%20%7C%20OpenCV-green)
+![Backend](https://img.shields.io/badge/Backend-FastAPI-blue)
 
 ---
 
 # 📖 Overview
 
-EduSathi AI is an AI-powered Progressive Web Application (PWA) designed for rural students.
+SmartVendor AI is an AI-powered retail assistant that converts any Android smartphone into a complete Point of Sale (POS) system.
 
-Unlike traditional AI chatbots, EduSathi AI focuses on **personalized learning**, **voice interaction**, **multilingual education**, and **intelligent mistake analysis**.
+Instead of relying on expensive barcode scanners and dedicated billing hardware, SmartVendor AI uses Computer Vision and Artificial Intelligence to recognize products directly through the phone's camera, automatically generate bills, update inventory, analyze sales, and recommend future stock requirements.
 
-The system uses a **Hybrid AI Architecture** that combines a **Local LLM** with **Google Gemini** to provide faster responses, reduce cloud dependency, and improve user experience.
+Designed especially for:
 
----
-
-# 🚀 Vision
-
-Build an AI tutor that **understands the student's learning process**, not just their questions.
-
-Instead of simply answering questions, EduSathi AI:
-
-- Explains concepts
-- Detects misconceptions
-- Generates personalized quizzes
-- Tracks learning progress
-- Supports multiple regional languages
-- Works with Hybrid AI
+- Kirana Stores
+- Grocery Shops
+- Bakeries
+- Medical Stores
+- Small Retail Businesses
 
 ---
 
 # 🎯 Problem Statement
 
-Rural students often face:
+Millions of small retailers still rely on:
 
-- Language barriers
-- Limited access to quality teachers
-- Lack of personalized learning
-- Difficulty typing queries
-- Limited internet connectivity
+- Manual billing
+- Paper notebooks
+- Expensive POS systems
+- Barcode scanners
+- Manual inventory tracking
 
-Our goal is to make AI tutoring accessible, interactive, and personalized.
+These methods are slow, error-prone, and difficult to manage.
 
----
-
-# ⭐ Key Features
-
-## 🤖 AI Tutor
-
-- AI-powered doubt solving
-- Follow-up conversations
-- Personalized explanations
+SmartVendor AI provides an affordable AI-powered alternative using only a smartphone.
 
 ---
 
-## 🎤 Voice Tutor
+# 💡 Our Solution
 
-- Speech-to-Text
-- AI Conversation
-- Text-to-Speech
+SmartVendor AI replaces traditional billing systems with AI-powered product recognition.
 
-Students can simply talk to the tutor.
+Simply point the phone camera at a product.
 
----
+The system automatically:
 
-## 🌍 Multilingual Support
+📷 Detects the product
 
-Supports
+↓
 
-- English
-- Marathi
-- Hindi
+🧠 Identifies it using AI
 
-(More languages can be added later.)
+↓
 
----
+🧾 Creates the bill
 
-## 📝 AI Quiz Generator
+↓
 
-Automatically generates quizzes after every lesson.
+📦 Updates inventory
 
-Features:
+↓
 
-- Adaptive questions
-- Instant evaluation
-- Personalized practice
+📊 Stores sales history
+
+↓
+
+📈 Predicts future stock requirements
 
 ---
 
-## 📊 Progress Dashboard
+# ⭐ Features
 
-Tracks
+## 📷 AI Product Recognition
 
-- Quiz performance
-- Weak topics
-- Learning history
-- Study statistics
+- Camera-based product detection
+- No barcode scanner required
+- Real-time object detection using YOLO
 
 ---
 
-## 🧠 Smart Error Analysis
+## 🧾 Smart Billing
 
-Instead of saying
+- Automatic bill generation
+- Quantity adjustment
+- GST support
+- Instant total calculation
 
-> "Wrong Answer"
+---
 
-The AI identifies
+## 📦 Inventory Management
 
-- Why the answer is wrong
-- The misconception behind it
-- Suggests revision
-- Generates another practice question
+- Automatic stock updates
+- Product database
+- Low-stock alerts
+- Inventory history
 
-Example
+---
 
-Student:
+## 📊 Sales Analytics
+
+- Daily sales
+- Weekly sales
+- Monthly sales
+- Best-selling products
+- Revenue tracking
+
+---
+
+## 📈 AI Demand Forecasting
+
+Machine Learning predicts:
+
+- Future demand
+- Inventory requirements
+- Restocking recommendations
+
+---
+
+## 📄 Digital Bill
+
+- PDF Bill Generation
+- WhatsApp Sharing
+- Digital Receipt Storage
+
+---
+
+## 📱 Offline Support
+
+Basic billing and inventory continue to work even without an internet connection.
+
+Data syncs automatically when connectivity is restored.
+
+---
+
+# 🏗️ System Workflow
 
 ```
-3/5 + 2/5 = 5/10
+Customer Product
+
+↓
+
+Phone Camera
+
+↓
+
+YOLO Object Detection
+
+↓
+
+Product Identification
+
+↓
+
+Billing Engine
+
+↓
+
+Inventory Engine
+
+↓
+
+Database
+
+↓
+
+Sales Analytics
+
+↓
+
+Demand Forecasting
+
+↓
+
+Dashboard
 ```
-
-AI:
-
-> You are adding denominators.
-
-> This indicates a misunderstanding of fractions.
-
-> Let's revise fractions before continuing.
 
 ---
 
-# ⚡ Hybrid AI Architecture
-
-Instead of sending every request to a cloud model,
-
-EduSathi AI intelligently decides which model should answer.
+# 🏛 System Architecture
 
 ```
-                 Student
+               Flutter Mobile App
+
+                        │
+
+                 REST API (FastAPI)
+
+                        │
+
+      ┌─────────────────┼─────────────────┐
+
+      │                 │                 │
+
+YOLO Detection     Billing Engine    Inventory Engine
+
+      │                 │                 │
+
+      └──────────────┬───────────────────┘
 
                      │
 
-            Voice / Text Input
+              Analytics Engine
 
                      │
 
-             AI Request Router
-
-        ┌────────────┴────────────┐
-
-        │                         │
-
- Local LLM                 Gemini API
-
-(Simple Tasks)          (Complex Tasks)
-
-        │                         │
-
-        └────────────┬────────────┘
+          Demand Forecast Model
 
                      │
 
-               Final Response
-```
-
-### Local LLM
-
-Used for
-
-- Definitions
-- Translation
-- Basic tutoring
-- Greetings
-- Quick responses
-
----
-
-### Gemini
-
-Used for
-
-- Deep reasoning
-- Smart Error Analysis
-- Personalized tutoring
-- Long explanations
-
----
-
-# 🏗️ System Architecture
-
-```
-Student
-
-↓
-
-React PWA
-
-↓
-
-FastAPI Backend
-
-↓
-
-AI Router
-
-↓
-
-──────────────
-
-Ollama
-
-Gemini
-
-──────────────
-
-↓
-
-MongoDB
-
-↓
-
-Response
+              SQLite / PostgreSQL
 ```
 
 ---
 
-# 🛠️ Technology Stack
+# 🛠 Technology Stack
 
 ## Frontend
 
-- React
-- Vite
-- Tailwind CSS
+- Flutter
+- Dart
 
 ---
 
@@ -246,198 +234,196 @@ Response
 
 ---
 
+## AI & Computer Vision
+
+- YOLOv8n
+- OpenCV
+
+---
+
+## OCR
+
+- Google ML Kit OCR
+
+---
+
+## Machine Learning
+
+- Scikit-learn
+
+---
+
 ## Database
 
-- MongoDB Atlas
+Development
+
+- SQLite
+
+Production
+
+- PostgreSQL
 
 ---
 
-## Artificial Intelligence
+## Version Control
 
-### Cloud
-
-- Google Gemini API
-
-### Local
-
-- Ollama
-- Qwen 2.5 3B (or Gemma)
-
----
-
-## Voice
-
-- Whisper (Speech-to-Text)
-
-- Piper / Edge TTS (Text-to-Speech)
-
----
-
-## Deployment
-
-Frontend
-
-- Vercel
-
-Backend
-
-- Render
-
-Database
-
-- MongoDB Atlas
+- Git
+- GitHub
 
 ---
 
 # 📂 Repository Structure
 
 ```
-EduSathi-AI/
-
-│
-
-├── docs/
-
-│   ├── Vision.md
-
-│   ├── Features.md
-
-│   ├── Architecture.md
-
-│   ├── AIArchitecture.md
-
-│   ├── DecisionLog.md
-
-│   ├── API.md
-
-│   ├── Database.md
-
-│   ├── Testing.md
-
-│   └── Roadmap.md
+SmartVendor-AI/
 
 │
 
 ├── frontend/
 
+│
+
 ├── backend/
 
-├── ai/
+│
 
-├── prompts/
+├── datasets/
 
-├── assets/
+│
+
+├── trained_models/
+
+│
+
+├── docs/
+
+│
+
+├── presentations/
+
+│
 
 ├── README.md
+
+│
 
 └── LICENSE
 ```
 
 ---
 
-# 📅 Development Workflow
+# 🚀 Development Roadmap
 
-```
-Research
+## Phase 1
 
-↓
-
-Planning
-
-↓
-
-Architecture
-
-↓
-
-Prototype
-
-↓
-
-Development
-
-↓
-
-Testing
-
-↓
-
-Benchmarking
-
-↓
-
-Optimization
-
-↓
-
-Presentation
-```
+- Project Setup
+- GitHub Repository
+- Folder Structure
 
 ---
 
-# 🎯 Project Philosophy
+## Phase 2
 
-> **Quality over Quantity**
-
-Instead of adding numerous average features,
-
-we focus on building a few polished and impactful ones.
-
-Every feature must answer:
-
-- Does it solve a real problem?
-- Does it improve learning?
-- Will judges remember it?
-- Can we explain it clearly?
+- Flutter UI
+- Product Database
+- FastAPI Backend
 
 ---
 
-# 🚫 What We're NOT Building
+## Phase 3
 
-- Teacher Portal
-- Admin Panel
-- Leaderboards
-- Social Features
-- Unnecessary AI Integrations
-- Features without clear value
+- YOLO Dataset
+- Image Annotation
+- Model Training
 
 ---
 
-# 📈 Current Status
+## Phase 4
+
+- Product Detection
+- Billing Engine
+- Inventory Engine
+
+---
+
+## Phase 5
+
+- Analytics Dashboard
+- Demand Forecasting
+- Reports
+
+---
+
+## Phase 6
+
+- Testing
+- Optimization
+- Deployment
+
+---
+
+# 🎯 Target Users
+
+- Grocery Shops
+- Kirana Stores
+- Supermarkets
+- Bakeries
+- Medical Stores
+- Stationery Shops
+
+---
+
+# 📈 Future Scope
+
+- Multi-store Management
+- Cloud Synchronization
+- UPI Payment Integration
+- Voice Billing
+- Customer Loyalty Program
+- Business Insights Dashboard
+
+---
+
+# 👥 Team
+
+| Module | Responsibility |
+|---------|----------------|
+| Mobile App | Flutter |
+| Backend | FastAPI |
+| AI Model | YOLOv8 |
+| Database | SQLite / PostgreSQL |
+| ML | Demand Forecasting |
+| Integration | API & Testing |
+
+---
+
+# 📌 Project Status
 
 - [x] Problem Statement Selected
-- [x] Product Vision
 - [x] Feature Planning
-- [ ] System Architecture
-- [ ] UI Design
-- [ ] Backend Development
+- [x] Technology Stack Finalized
+- [ ] Git Repository Setup
+- [ ] Flutter Development
+- [ ] Backend APIs
+- [ ] Dataset Collection
+- [ ] Image Annotation
+- [ ] YOLO Model Training
 - [ ] AI Integration
-- [ ] Hybrid AI
-- [ ] Voice Tutor
-- [ ] Smart Error Analysis
+- [ ] Billing System
+- [ ] Inventory Management
+- [ ] Analytics Dashboard
+- [ ] Demand Forecasting
 - [ ] Testing
 - [ ] Final Deployment
 
 ---
 
-# 👨‍💻 Team
+# 🎯 Project Goal
 
-| Role | Responsibility |
-|------|----------------|
-| Frontend | React PWA |
-| Backend | FastAPI + MongoDB |
-| AI | Gemini + Ollama |
-| Voice | STT + TTS |
-| Integration | Testing & Deployment |
-
----
-
-# 📜 License
-
-This project is developed for **SKH 2026 Hackathon**.
+To empower every small retailer with an affordable AI-powered billing and inventory management system using only a smartphone.
 
 ---
 
 ## ⭐ Motto
 
-> **"Build the smallest product that creates the biggest impression."**
+> **"From Camera to Checkout — Smart Billing Powered by AI."**
