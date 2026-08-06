@@ -1,0 +1,7 @@
+train: images/train
+val: images/val
+
+names:
+  0: nivea_deodorant
+  1: bourbon_biscuit
+  2: milky_biscuit

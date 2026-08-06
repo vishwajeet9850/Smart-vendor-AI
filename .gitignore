@@ -1,0 +1,17 @@
+# AI
+AI/.venv/
+AI/runs/
+AI/models/
+AI/datasets/
+
+# Python
+**/__pycache__/
+*.py[cod]
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
