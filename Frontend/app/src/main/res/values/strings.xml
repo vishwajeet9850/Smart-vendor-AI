@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">SmartVendorAI</string>
+    <string name="app_name">SmartVendor AI</string>
+    <string name="tagline">AI Powered Smart Billing &amp; Inventory</string>
 </resources>

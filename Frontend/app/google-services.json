@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "308876938636",
+    "project_id": "smartvendor-ai-fbde3",
+    "storage_bucket": "smartvendor-ai-fbde3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:308876938636:android:6908aba3c586a442cb1aa9",
+        "android_client_info": {
+          "package_name": "com.smartvendor.ai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCdMZChVPo_Da4kLyhFvszTg1A4anmoAlQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
