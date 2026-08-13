@@ -1,15 +1,16 @@
+import uuid
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import models
-from database import engine, Base, get_db
+from database import engine, Base, get_db, SessionLocal
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="SmartVendor AI API",
-    description="Backend API for SmartVendor AI — Billing, Inventory, Analytics, and Store Profiles",
+    description="Backend API for SmartVendor AI — Billing, Inventory, Analytics, Store Profiles, and Master Catalog",
     version="1.0.0"
 )
 
@@ -22,11 +23,12 @@ app.add_middleware(
 )
 
 # Register routers
-from routers import products, bills, analytics, store
+from routers import products, bills, analytics, store, catalog
 app.include_router(products.router)
 app.include_router(bills.router)
 app.include_router(analytics.router)
 app.include_router(store.router)
+app.include_router(catalog.router)
 
 
 @app.get("/", tags=["Health"])

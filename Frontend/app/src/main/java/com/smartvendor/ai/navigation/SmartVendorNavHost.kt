@@ -80,9 +80,15 @@ fun SmartVendorNavHost(
             BillingScreen(
                 billId = billId,
                 onNavigateBack = { navController.popBackStack() },
-                onCheckoutSuccess = { bId ->
-                    navController.navigate(Screen.CheckoutSuccess.createRoute(bId)) {
-                        popUpTo(Screen.Scan.route) { inclusive = true }
+                onStartNewBill = {
+                    val newBillId = "BILL_${System.currentTimeMillis()}"
+                    navController.navigate(Screen.Scan.createRoute(newBillId)) {
+                        popUpTo(Screen.Dashboard.route) { inclusive = false }
+                    }
+                },
+                onNavigateToDashboard = {
+                    navController.navigate(Screen.Dashboard.route) {
+                        popUpTo(Screen.Dashboard.route) { inclusive = true }
                     }
                 }
             )

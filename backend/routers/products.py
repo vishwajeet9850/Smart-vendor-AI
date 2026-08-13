@@ -10,6 +10,8 @@ import schemas
 router = APIRouter(prefix="/products", tags=["Products"])
 
 
+from sqlalchemy import or_
+
 @router.get("", response_model=List[schemas.ProductResponse])
 def list_products(
     user_id: CurrentUser,

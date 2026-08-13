@@ -78,8 +78,9 @@ dependencies {
     implementation(libs.tensorflow.lite.support)
     implementation(libs.tensorflow.lite.gpu)
 
-    // ML Kit Barcode Scanning
+    // ML Kit Barcode Scanning & Text Recognition
     implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.mlkit.text.recognition)
 
     // Firebase BOM
     implementation(platform(libs.firebase.bom))

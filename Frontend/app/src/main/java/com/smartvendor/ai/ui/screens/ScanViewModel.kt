@@ -11,6 +11,8 @@ import com.smartvendor.ai.model.Bill
 import com.smartvendor.ai.model.BillItem
 import com.smartvendor.ai.model.DetectionResult
 import com.smartvendor.ai.model.Product
+import com.smartvendor.ai.ocr.OcrResult
+import com.smartvendor.ai.ocr.OcrScannerManager
 import com.smartvendor.ai.repository.ProductRepository
 import com.smartvendor.ai.repository.ProductRepositoryImpl
 import com.smartvendor.ai.repository.SalesRepository
@@ -18,18 +20,23 @@ import com.smartvendor.ai.repository.SalesRepositoryImpl
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class ScanUiState(
     val aiStatus: String = "Initializing AI...",
     val isBarcodeActive: Boolean = false,
+    val isOcrActive: Boolean = false,
     val activeDetections: List<DetectionResult> = emptyList(),
     val detectedProduct: Product? = null,
     val selectedQuantity: Int = 1,
     val currentBill: Bill? = null,
     val consecutiveFailedDetections: Int = 0,
     val showManualEntryDialog: Boolean = false,
+    val ocrPrefilledName: String = "",
+    val ocrPrefilledPrice: String = "",
+    val inventoryProducts: List<Product> = emptyList(),
     val errorMessage: String? = null,
     val isProcessingFrame: Boolean = false
 )
@@ -44,10 +51,11 @@ class ScanViewModel(
 
     private var classifier: TFLiteClassifier? = null
     private val barcodeScanner = BarcodeScannerManager()
+    private val ocrScanner = OcrScannerManager()
 
     private var lastDetectedProductId: String? = null
     private var lastDetectedTimestamp: Long = 0L
-    private val debounceWindowMs = 3000L // 3-second duplicate detection window
+    private val debounceWindowMs = 3000L
 
     fun initialize(context: Context, billId: String) {
         viewModelScope.launch {
@@ -61,18 +69,44 @@ class ScanViewModel(
             }
 
             loadBill(billId)
+            observeInventory()
+        }
+    }
+
+    private fun observeInventory() {
+        viewModelScope.launch {
+            productRepository.getProductsStream().collect { products ->
+                _uiState.update { it.copy(inventoryProducts = products) }
+            }
         }
     }
 
     private fun loadBill(billId: String) {
         viewModelScope.launch {
-            salesRepository.getBillById(billId).onSuccess { bill ->
-                _uiState.update { it.copy(currentBill = bill) }
+            val validId = if (billId.isNotBlank()) billId else "BILL_${System.currentTimeMillis()}"
+            salesRepository.getBillById(validId).onSuccess { bill ->
+                if (bill != null) {
+                    _uiState.update { it.copy(currentBill = bill) }
+                } else {
+                    val newBill = Bill(billId = validId, items = emptyList(), subtotal = 0.0, gst = 0.0, grandTotal = 0.0)
+                    salesRepository.saveBill(newBill)
+                    _uiState.update { it.copy(currentBill = newBill) }
+                }
             }.onFailure {
-                // If bill doesn't exist yet, create a new local bill instance
-                val newBill = Bill(billId = billId, items = emptyList(), subtotal = 0.0, gst = 0.0, grandTotal = 0.0)
+                val newBill = Bill(billId = validId, items = emptyList(), subtotal = 0.0, gst = 0.0, grandTotal = 0.0)
+                salesRepository.saveBill(newBill)
                 _uiState.update { it.copy(currentBill = newBill) }
             }
+        }
+    }
+
+    fun toggleScanMode(useOcr: Boolean) {
+        _uiState.update {
+            it.copy(
+                isOcrActive = useOcr,
+                isBarcodeActive = !useOcr,
+                aiStatus = if (useOcr) "📝 Live Label & Price OCR Active" else "📷 Live Barcode Scanner Active"
+            )
         }
     }
 
@@ -85,6 +119,24 @@ class ScanViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isProcessingFrame = true) }
 
+            // 1. OCR Label & Price Scanning Mode
+            if (_uiState.value.isOcrActive) {
+                ocrScanner.processImage(
+                    imageProxy = imageProxy,
+                    onSuccess = { ocrResult ->
+                        handleOcrDetected(ocrResult)
+                    },
+                    onNotFound = {
+                        _uiState.update { it.copy(isProcessingFrame = false) }
+                    },
+                    onError = {
+                        _uiState.update { it.copy(isProcessingFrame = false) }
+                    }
+                )
+                return@launch
+            }
+
+            // 2. Barcode Scanner Mode
             if (_uiState.value.isBarcodeActive) {
                 barcodeScanner.scanImage(
                     imageProxy = imageProxy,
@@ -101,7 +153,7 @@ class ScanViewModel(
                 return@launch
             }
 
-            // YOLO AI Inference
+            // 3. YOLO AI Object Detection Mode
             val bitmap = YoloUtils.imageProxyToBitmap(imageProxy)
             imageProxy.close()
 
@@ -123,6 +175,52 @@ class ScanViewModel(
                 }
             } else {
                 handleLowConfidence()
+            }
+        }
+    }
+
+    private fun handleOcrDetected(ocrResult: OcrResult) {
+        viewModelScope.launch {
+            try {
+                val products = _uiState.value.inventoryProducts
+                // Use 80%+ threshold Fuzzy Matcher linked with Product Name & Quantity/Unit!
+                val matchingProduct = ocrScanner.findBestInventoryMatch(
+                    ocrResult = ocrResult,
+                    inventoryProducts = products,
+                    threshold = 0.80f
+                )
+
+                if (matchingProduct != null) {
+                    // Match found in inventory (>= 80% score)! Select product and display detected card for instant add
+                    _uiState.update {
+                        it.copy(
+                            detectedProduct = matchingProduct,
+                            selectedQuantity = 1,
+                            aiStatus = "Product Matched (${matchingProduct.name})",
+                            isProcessingFrame = false
+                        )
+                    }
+                } else {
+                    // Match < 80% (New Variant or New Product) -> Show manual entry dialog asking for Stock!
+                    _uiState.update {
+                        it.copy(
+                            ocrPrefilledName = ocrResult.fullCombinedName,
+                            ocrPrefilledPrice = ocrResult.price?.toString() ?: "",
+                            showManualEntryDialog = true,
+                            aiStatus = "New Product Variant Detected — Set Stock",
+                            isProcessingFrame = false
+                        )
+                    }
+                }
+            } catch (ex: Exception) {
+                _uiState.update {
+                    it.copy(
+                        ocrPrefilledName = ocrResult.fullCombinedName,
+                        ocrPrefilledPrice = ocrResult.price?.toString() ?: "",
+                        showManualEntryDialog = true,
+                        isProcessingFrame = false
+                    )
+                }
             }
         }
     }
@@ -209,11 +307,8 @@ class ScanViewModel(
     }
 
     fun increaseQuantity() {
-        val currentProduct = _uiState.value.detectedProduct ?: return
         val currentQty = _uiState.value.selectedQuantity
-        if (currentQty < currentProduct.stock) {
-            _uiState.update { it.copy(selectedQuantity = currentQty + 1) }
-        }
+        _uiState.update { it.copy(selectedQuantity = currentQty + 1) }
     }
 
     fun decreaseQuantity() {
@@ -227,6 +322,17 @@ class ScanViewModel(
         val product = _uiState.value.detectedProduct ?: return
         val qty = _uiState.value.selectedQuantity
         appendProductToActiveBill(product, qty)
+    }
+
+    fun addExistingProductToBill(product: Product, quantity: Int) {
+        appendProductToActiveBill(product, quantity)
+        _uiState.update {
+            it.copy(
+                showManualEntryDialog = false,
+                ocrPrefilledName = "",
+                ocrPrefilledPrice = ""
+            )
+        }
     }
 
     private fun appendProductToActiveBill(product: Product, qty: Int) {
@@ -277,26 +383,45 @@ class ScanViewModel(
                         selectedQuantity = 1,
                         activeDetections = emptyList(),
                         showManualEntryDialog = false,
-                        aiStatus = "Live Barcode Scanner Active"
+                        ocrPrefilledName = "",
+                        ocrPrefilledPrice = "",
+                        aiStatus = "Live Scanner Active"
                     )
                 }
             }.onFailure {
-                // Local state fallback if backend call fails
                 _uiState.update { state ->
                     state.copy(
                         currentBill = updatedBill,
                         detectedProduct = null,
                         selectedQuantity = 1,
-                        showManualEntryDialog = false
+                        showManualEntryDialog = false,
+                        ocrPrefilledName = "",
+                        ocrPrefilledPrice = ""
                     )
                 }
             }
         }
     }
 
-    fun saveManualProduct(name: String, price: Double, stock: Int, category: String, barcode: String) {
+    fun saveManualProduct(name: String, price: Double, stock: Int, category: String, barcode: String, quantity: Int = 1) {
         viewModelScope.launch {
-            val initialStock = if (stock > 0) stock else 1
+            val matchedProduct = _uiState.value.inventoryProducts.firstOrNull {
+                it.name.equals(name, ignoreCase = true) || (barcode.isNotBlank() && it.barcode == barcode)
+            }
+
+            if (matchedProduct != null) {
+                appendProductToActiveBill(matchedProduct, quantity)
+                _uiState.update {
+                    it.copy(
+                        showManualEntryDialog = false,
+                        ocrPrefilledName = "",
+                        ocrPrefilledPrice = ""
+                    )
+                }
+                return@launch
+            }
+
+            val initialStock = if (stock > 0) stock else 10
             val newProduct = Product(
                 name = name,
                 price = price,
@@ -305,15 +430,12 @@ class ScanViewModel(
                 stock = initialStock
             )
 
-            // Save to product catalog first
             productRepository.addProduct(newProduct).onSuccess { id ->
                 val createdProduct = newProduct.copy(id = id)
-                // Immediately add to bill!
-                appendProductToActiveBill(createdProduct, 1)
+                appendProductToActiveBill(createdProduct, quantity)
             }.onFailure {
-                // If offline or product save fails, still add item directly to current bill!
                 val fallbackProduct = newProduct.copy(id = "MANUAL_${System.currentTimeMillis()}")
-                appendProductToActiveBill(fallbackProduct, 1)
+                appendProductToActiveBill(fallbackProduct, quantity)
             }
         }
     }
@@ -323,7 +445,13 @@ class ScanViewModel(
     }
 
     fun dismissManualEntryDialog() {
-        _uiState.update { it.copy(showManualEntryDialog = false) }
+        _uiState.update {
+            it.copy(
+                showManualEntryDialog = false,
+                ocrPrefilledName = "",
+                ocrPrefilledPrice = ""
+            )
+        }
     }
 
     fun cancelDetection() {
@@ -332,7 +460,7 @@ class ScanViewModel(
                 detectedProduct = null,
                 activeDetections = emptyList(),
                 selectedQuantity = 1,
-                aiStatus = "Live Barcode Scanner Active"
+                aiStatus = "Live Scanner Active"
             )
         }
     }
@@ -341,5 +469,6 @@ class ScanViewModel(
         super.onCleared()
         classifier?.close()
         barcodeScanner.close()
+        ocrScanner.close()
     }
 }

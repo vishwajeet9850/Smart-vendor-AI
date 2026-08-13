@@ -4,7 +4,7 @@
             "outputFile": "com.smartvendor.ai.app-mergeDebugResources-73:/values-watch-v20/values-watch-v20.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\sadgi\\.gradle\\caches\\8.9\\transforms\\5bc629ddf4c044b2f8ca0fa105c96bc9\\transformed\\play-services-auth-20.7.0\\res\\values-watch-v20\\values.xml",
+                    "source": "C:\\Users\\sadgi\\.gradle\\caches\\8.9\\transforms\\99cac34c470c2258064858ebf635b2cd\\transformed\\play-services-auth-20.7.0\\res\\values-watch-v20\\values.xml",
                     "from": {
                         "startLines": "4,5,6,7,8,9,10,11",
                         "startColumns": "0,0,0,0,0,0,0,0",
@@ -21,7 +21,7 @@
                     }
                 },
                 {
-                    "source": "C:\\Users\\sadgi\\.gradle\\caches\\8.9\\transforms\\42feecb85a0fa9c2f927b563b0a2ae83\\transformed\\appcompat-1.6.1\\res\\values-watch-v20\\values-watch-v20.xml",
+                    "source": "C:\\Users\\sadgi\\.gradle\\caches\\8.9\\transforms\\26e285a708438e2f7ff79f67a59bf011\\transformed\\appcompat-1.6.1\\res\\values-watch-v20\\values-watch-v20.xml",
                     "from": {
                         "startLines": "2,5,8",
                         "startColumns": "4,4,4",

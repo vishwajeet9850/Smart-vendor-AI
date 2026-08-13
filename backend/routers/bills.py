@@ -2,6 +2,7 @@ import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from database import get_db
 from auth import CurrentUser
 import models
@@ -32,12 +33,6 @@ def create_bill(
                 models.Product.user_id == user_id
             ).first()
 
-            if product and product.stock < item.quantity:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Insufficient stock for '{product.name}'. Available: {product.stock}"
-                )
-
         validated_items.append((item, product))
 
     # Create bill record
@@ -50,7 +45,7 @@ def create_bill(
     )
     db.add(bill)
 
-    # Create bill items and deduct stock for catalog items
+    # Create bill items and update stock for catalog items
     for item, product in validated_items:
         bill_item = models.BillItem(
             id=str(uuid.uuid4()),
@@ -64,10 +59,11 @@ def create_bill(
         db.add(bill_item)
 
         if product:
+            new_stock = max(0, product.stock - item.quantity)
             db.query(models.Product).filter(
                 models.Product.id == product.id,
                 models.Product.user_id == user_id
-            ).update({models.Product.stock: models.Product.stock - item.quantity})
+            ).update({models.Product.stock: new_stock})
 
     db.commit()
     db.refresh(bill)

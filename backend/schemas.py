@@ -67,6 +67,17 @@ class ProductResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MasterCatalogResponse(BaseModel):
+    id: str
+    name: str
+    category: str
+    suggested_price: float
+    barcode: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+
 # ─── Bill Schemas ──────────────────────────────────────────────────────────────
 
 class BillItemCreate(BaseModel):

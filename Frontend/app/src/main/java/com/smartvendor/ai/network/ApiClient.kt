@@ -22,7 +22,7 @@ object ApiClient {
         val token = runBlocking {
             try {
                 FirebaseAuth.getInstance().currentUser
-                    ?.getIdToken(false)
+                    ?.getIdToken(true)
                     ?.await()
                     ?.token
             } catch (e: Exception) {

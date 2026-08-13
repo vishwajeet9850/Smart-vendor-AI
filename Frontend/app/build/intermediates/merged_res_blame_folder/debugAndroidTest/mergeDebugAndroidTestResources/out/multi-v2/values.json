@@ -4,7 +4,7 @@
             "outputFile": "com.smartvendor.ai.test.app-mergeDebugAndroidTestResources-3:/values/values.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\sadgi\\.gradle\\caches\\8.9\\transforms\\4fa5390a9af176dad089e433dee8878f\\transformed\\core-1.6.1\\res\\values\\values.xml",
+                    "source": "C:\\Users\\sadgi\\.gradle\\caches\\8.9\\transforms\\bcff640712562159ef1b4893fec3fa44\\transformed\\core-1.6.1\\res\\values\\values.xml",
                     "from": {
                         "startLines": "4,11",
                         "startColumns": "0,0",

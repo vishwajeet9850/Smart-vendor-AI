@@ -65,3 +65,14 @@ class StoreProfile(Base):
     gst = Column(String, nullable=False, default="")
     upi = Column(String, nullable=False, default="")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MasterCatalog(Base):
+    __tablename__ = "master_catalog"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False, index=True)
+    category = Column(String, nullable=False, default="General")
+    suggested_price = Column(Float, nullable=False, default=0.0)
+    barcode = Column(String, nullable=True, index=True)
+

@@ -4,7 +4,7 @@
             "outputFile": "com.smartvendor.ai.app-mergeDebugResources-73:/values-v17/values-v17.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\sadgi\\.gradle\\caches\\8.9\\transforms\\42feecb85a0fa9c2f927b563b0a2ae83\\transformed\\appcompat-1.6.1\\res\\values-v17\\values-v17.xml",
+                    "source": "C:\\Users\\sadgi\\.gradle\\caches\\8.9\\transforms\\26e285a708438e2f7ff79f67a59bf011\\transformed\\appcompat-1.6.1\\res\\values-v17\\values-v17.xml",
                     "from": {
                         "startLines": "2,5,9,12,15,18,22,25,29,33,37,40,43,46,50,53,57",
                         "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
