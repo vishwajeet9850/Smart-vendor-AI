@@ -222,14 +222,15 @@ YOLO Detection     Billing Engine    Inventory Engine
 
 ## Frontend
 
-- Flutter
-- Dart
+- Kotlin
+- Android studio
 
 ---
 
 ## Backend
 
 - FastAPI
+- SQL
 - Python
 
 ---
@@ -324,9 +325,10 @@ SmartVendor-AI/
 
 ## Phase 2
 
-- Flutter UI
+- Kotlin UI
 - Product Database
 - FastAPI Backend
+- OCR
 
 ---
 
@@ -388,7 +390,7 @@ SmartVendor-AI/
 
 | Module | Responsibility |
 |---------|----------------|
-| Mobile App | Flutter |
+| Mobile App | Kotlin |
 | Backend | FastAPI |
 | AI Model | YOLOv8 |
 | Database | SQLite / PostgreSQL |
