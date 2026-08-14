@@ -12,6 +12,14 @@ AI/datasets/
 .vscode/
 .idea/
 
+# Credentials & Secrets (CRITICAL SECURITY)
+serviceAccountKey.json
+**/serviceAccountKey.json
+*.json
+*.pem
+*.key
+.env
+
 # OS
 Thumbs.db
 .DS_Store
