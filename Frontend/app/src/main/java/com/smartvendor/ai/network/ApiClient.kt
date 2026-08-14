@@ -13,9 +13,9 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
-    // 10.56.87.180 works on real physical phone connected to Wi-Fi and emulator
-    // 10.0.2.2 works on Android emulator
-    private const val BASE_URL = "http://10.56.87.180:8000/"
+    // Current active Laptop IP address on Wi-Fi network: 10.88.240.180
+    // (Hotspot IP: 192.168.137.1, Emulator: 10.0.2.2)
+    private const val BASE_URL = "http://10.88.240.180:8000/"
 
     private val firebaseTokenInterceptor = Interceptor { chain ->
         val request = chain.request()

@@ -131,6 +131,14 @@ data class MarketTrendInsightResponse(
     @SerializedName("badge_label") val badgeLabel: String = "🌐 Market Trend"
 )
 
+data class MasterCatalogResponse(
+    val id: String,
+    val name: String,
+    val category: String,
+    @SerializedName("suggested_price") val suggestedPrice: Double,
+    val barcode: String? = null
+)
+
 data class AnalyticsSummaryResponse(
     @SerializedName("total_revenue") val totalRevenue: Double,
     @SerializedName("total_bills") val totalBills: Int,

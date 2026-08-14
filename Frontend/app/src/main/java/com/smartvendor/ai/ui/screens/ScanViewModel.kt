@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 data class ScanUiState(
     val aiStatus: String = "Initializing AI...",
@@ -56,6 +57,10 @@ class ScanViewModel(
     private var lastDetectedProductId: String? = null
     private var lastDetectedTimestamp: Long = 0L
     private val debounceWindowMs = 3000L
+
+    private val dismissedProductIds = ConcurrentHashMap.newKeySet<String>()
+    private val recentlyAddedTimestampMap = ConcurrentHashMap<String, Long>()
+    private val addedCooldownMs = 5000L
 
     fun initialize(context: Context, billId: String) {
         viewModelScope.launch {
@@ -110,11 +115,16 @@ class ScanViewModel(
         }
     }
 
+    private var lastFrameProcessTime: Long = 0L
+    private val catalogSearchCache = java.util.concurrent.ConcurrentHashMap<String, List<com.smartvendor.ai.network.models.MasterCatalogResponse>>()
+
     fun processFrame(imageProxy: ImageProxy) {
-        if (_uiState.value.isProcessingFrame || _uiState.value.detectedProduct != null) {
+        val now = System.currentTimeMillis()
+        if (_uiState.value.isProcessingFrame || _uiState.value.detectedProduct != null || (now - lastFrameProcessTime < 300L)) {
             imageProxy.close()
             return
         }
+        lastFrameProcessTime = now
 
         viewModelScope.launch {
             _uiState.update { it.copy(isProcessingFrame = true) }
@@ -183,44 +193,108 @@ class ScanViewModel(
         viewModelScope.launch {
             try {
                 val products = _uiState.value.inventoryProducts
-                // Use 80%+ threshold Fuzzy Matcher linked with Product Name & Quantity/Unit!
-                val matchingProduct = ocrScanner.findBestInventoryMatch(
+                val now = System.currentTimeMillis()
+
+                // 1. Check Store Inventory (Ranked candidates for instant alternative recommendation on cancel)
+                val rankedInventoryMatches = ocrScanner.findRankedInventoryMatches(
                     ocrResult = ocrResult,
                     inventoryProducts = products,
-                    threshold = 0.80f
+                    threshold = 0.45f
                 )
 
-                if (matchingProduct != null) {
-                    // Match found in inventory (>= 80% score)! Select product and display detected card for instant add
-                    _uiState.update {
-                        it.copy(
-                            detectedProduct = matchingProduct,
-                            selectedQuantity = 1,
-                            aiStatus = "Product Matched (${matchingProduct.name})",
-                            isProcessingFrame = false
-                        )
-                    }
-                } else {
-                    // Match < 80% (New Variant or New Product) -> Show manual entry dialog asking for Stock!
-                    _uiState.update {
-                        it.copy(
-                            ocrPrefilledName = ocrResult.fullCombinedName,
-                            ocrPrefilledPrice = ocrResult.price?.toString() ?: "",
-                            showManualEntryDialog = true,
-                            aiStatus = "New Product Variant Detected — Set Stock",
-                            isProcessingFrame = false
-                        )
-                    }
-                }
-            } catch (ex: Exception) {
-                _uiState.update {
-                    it.copy(
-                        ocrPrefilledName = ocrResult.fullCombinedName,
-                        ocrPrefilledPrice = ocrResult.price?.toString() ?: "",
-                        showManualEntryDialog = true,
-                        isProcessingFrame = false
+                for (storeMatch in rankedInventoryMatches) {
+                    val lastAdded = maxOf(
+                        recentlyAddedTimestampMap[storeMatch.id] ?: 0L,
+                        recentlyAddedTimestampMap[storeMatch.name.lowercase()] ?: 0L
                     )
+
+                    val isRecentlyAdded = (now - lastAdded < addedCooldownMs)
+                    val isDismissed = (dismissedProductIds.contains(storeMatch.id) || dismissedProductIds.contains(storeMatch.name.lowercase()))
+
+                    if (isRecentlyAdded) {
+                        // Product was added to bill within last 5 seconds! Suppress pop-up card to avoid duplicates
+                        _uiState.update { it.copy(isProcessingFrame = false) }
+                        return@launch
+                    }
+
+                    if (isDismissed) {
+                        // User CANCELLED this candidate! Try next alternative recommendation candidate!
+                        continue
+                    }
+
+                    // Found valid non-dismissed match! Select and display card for instant bill addition
+                    _uiState.update {
+                        it.copy(
+                            detectedProduct = storeMatch,
+                            selectedQuantity = 1,
+                            aiStatus = "Product Matched (${storeMatch.name})",
+                            isProcessingFrame = false
+                        )
+                    }
+                    return@launch
                 }
+
+                // 2. Not in Store Inventory -> Search 6,000 Master Catalog Items using Instant In-Memory Cache!
+                val fullQuery = ocrResult.productName.takeIf { it.isNotBlank() } ?: ocrResult.fullCombinedName
+                val brandKeyword = (fullQuery.split(" ").firstOrNull { it.length >= 3 } ?: fullQuery).lowercase()
+
+                val catalogResult = catalogSearchCache.getOrPut(brandKeyword) {
+                    val remoteRes = productRepository.searchMasterCatalog(brandKeyword).getOrDefault(emptyList())
+                    if (remoteRes.isEmpty() && brandKeyword != fullQuery.lowercase()) {
+                        productRepository.searchMasterCatalog(fullQuery).getOrDefault(emptyList())
+                    } else {
+                        remoteRes
+                    }
+                }
+
+                val rankedCatalogMatches = ocrScanner.findRankedCatalogMatches(
+                    ocrResult = ocrResult,
+                    catalogItems = catalogResult,
+                    threshold = 0.50f
+                )
+
+                for (matchedCatalogItem in rankedCatalogMatches) {
+                    val isDismissed = (dismissedProductIds.contains(matchedCatalogItem.id ?: "") || dismissedProductIds.contains(matchedCatalogItem.name.lowercase()))
+                    if (isDismissed) continue
+
+                    val existingInInventory = products.firstOrNull {
+                        it.name.equals(matchedCatalogItem.name, ignoreCase = true) ||
+                                (!matchedCatalogItem.barcode.isNullOrBlank() && it.barcode == matchedCatalogItem.barcode)
+                    }
+
+                    val targetProduct = existingInInventory ?: Product(
+                        id = matchedCatalogItem.id ?: "CAT_${System.currentTimeMillis()}",
+                        name = matchedCatalogItem.name,
+                        price = matchedCatalogItem.suggestedPrice ?: 10.0,
+                        stock = 50,
+                        category = matchedCatalogItem.category ?: "Grocery",
+                        barcode = matchedCatalogItem.barcode ?: ""
+                    )
+
+                    val lastAdded = maxOf(
+                        recentlyAddedTimestampMap[targetProduct.id] ?: 0L,
+                        recentlyAddedTimestampMap[targetProduct.name.lowercase()] ?: 0L
+                    )
+
+                    if (now - lastAdded < addedCooldownMs) {
+                        _uiState.update { it.copy(isProcessingFrame = false) }
+                        return@launch
+                    }
+
+                    _uiState.update {
+                        it.copy(
+                            detectedProduct = targetProduct,
+                            selectedQuantity = 1,
+                            aiStatus = "Catalog Matched (${targetProduct.name})",
+                            isProcessingFrame = false
+                        )
+                    }
+                    return@launch
+                }
+
+                _uiState.update { it.copy(isProcessingFrame = false) }
+            } catch (ex: Exception) {
+                _uiState.update { it.copy(isProcessingFrame = false) }
             }
         }
     }
@@ -336,6 +410,10 @@ class ScanViewModel(
     }
 
     private fun appendProductToActiveBill(product: Product, qty: Int) {
+        val now = System.currentTimeMillis()
+        recentlyAddedTimestampMap[product.id] = now
+        recentlyAddedTimestampMap[product.name.lowercase()] = now
+
         val currentBillState = _uiState.value.currentBill ?: Bill(
             billId = "BILL_${System.currentTimeMillis()}",
             items = emptyList()
@@ -455,6 +533,11 @@ class ScanViewModel(
     }
 
     fun cancelDetection() {
+        val currentProduct = _uiState.value.detectedProduct
+        if (currentProduct != null) {
+            dismissedProductIds.add(currentProduct.id)
+            dismissedProductIds.add(currentProduct.name.lowercase())
+        }
         _uiState.update {
             it.copy(
                 detectedProduct = null,

@@ -11,4 +11,5 @@ interface ProductRepository {
     suspend fun updateProduct(product: Product): Result<Unit>
     suspend fun addProduct(product: Product): Result<String>
     suspend fun deleteProduct(productId: String): Result<Unit>
+    suspend fun searchMasterCatalog(query: String): Result<List<com.smartvendor.ai.network.models.MasterCatalogResponse>>
 }

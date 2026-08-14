@@ -68,10 +68,10 @@ com.smartvendor.ai.app-customview-poolingcontainer-1.0.0-66 C:\Users\sadgi\.grad
 com.smartvendor.ai.app-animation-core-release-67 C:\Users\sadgi\.gradle\caches\8.9\transforms\f2541709ba9a84c00c1c8bf39f4765d1\transformed\animation-core-release\res
 com.smartvendor.ai.app-camera-lifecycle-1.4.0-68 C:\Users\sadgi\.gradle\caches\8.9\transforms\f73a68efdb62f6cb8c5c9332b3701b7a\transformed\camera-lifecycle-1.4.0\res
 com.smartvendor.ai.app-material-icons-extended-release-69 C:\Users\sadgi\.gradle\caches\8.9\transforms\fb9026220b68c6402c0692712c9995c5\transformed\material-icons-extended-release\res
-com.smartvendor.ai.app-res-70 E:\projects\app\smartvendor\frontend\app\build\generated\res\processDebugGoogleServices
-com.smartvendor.ai.app-resValues-71 E:\projects\app\smartvendor\frontend\app\build\generated\res\resValues\debug
-com.smartvendor.ai.app-packageDebugResources-72 E:\projects\app\smartvendor\frontend\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
-com.smartvendor.ai.app-packageDebugResources-73 E:\projects\app\smartvendor\frontend\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
-com.smartvendor.ai.app-debug-74 E:\projects\app\smartvendor\frontend\app\build\intermediates\merged_res\debug\mergeDebugResources
-com.smartvendor.ai.app-debug-75 E:\projects\app\smartvendor\frontend\app\src\debug\res
-com.smartvendor.ai.app-main-76 E:\projects\app\smartvendor\frontend\app\src\main\res
+com.smartvendor.ai.app-res-70 E:\projects\app\Smart-vendor-AI\frontend\app\build\generated\res\processDebugGoogleServices
+com.smartvendor.ai.app-resValues-71 E:\projects\app\Smart-vendor-AI\frontend\app\build\generated\res\resValues\debug
+com.smartvendor.ai.app-packageDebugResources-72 E:\projects\app\Smart-vendor-AI\frontend\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+com.smartvendor.ai.app-packageDebugResources-73 E:\projects\app\Smart-vendor-AI\frontend\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+com.smartvendor.ai.app-debug-74 E:\projects\app\Smart-vendor-AI\frontend\app\build\intermediates\merged_res\debug\mergeDebugResources
+com.smartvendor.ai.app-debug-75 E:\projects\app\Smart-vendor-AI\frontend\app\src\debug\res
+com.smartvendor.ai.app-main-76 E:\projects\app\Smart-vendor-AI\frontend\app\src\main\res

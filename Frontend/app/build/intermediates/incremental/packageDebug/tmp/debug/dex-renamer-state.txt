@@ -1,20 +1,20 @@
-#Tue Aug 11 15:57:21 IST 2026
-base.0=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes.dex
-base.1=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\0\\classes.dex
-base.10=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\3\\classes.dex
-base.11=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\6\\classes.dex
-base.12=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\7\\classes.dex
-base.13=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes2.dex
-base.14=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes3.dex
-base.15=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes4.dex
-base.2=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\10\\classes.dex
-base.3=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\11\\classes.dex
-base.4=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\12\\classes.dex
-base.5=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\13\\classes.dex
-base.6=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\14\\classes.dex
-base.7=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\15\\classes.dex
-base.8=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\1\\classes.dex
-base.9=E\:\\projects\\app\\smartvendor\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\2\\classes.dex
+#Fri Aug 14 16:16:46 IST 2026
+base.0=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes.dex
+base.1=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\0\\classes.dex
+base.10=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\3\\classes.dex
+base.11=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\6\\classes.dex
+base.12=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\7\\classes.dex
+base.13=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes2.dex
+base.14=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes3.dex
+base.15=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes4.dex
+base.2=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\10\\classes.dex
+base.3=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\11\\classes.dex
+base.4=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\12\\classes.dex
+base.5=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\13\\classes.dex
+base.6=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\14\\classes.dex
+base.7=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\15\\classes.dex
+base.8=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\1\\classes.dex
+base.9=E\:\\projects\\app\\Smart-vendor-AI\\frontend\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\2\\classes.dex
 path.0=classes.dex
 path.1=0/classes.dex
 path.10=3/classes.dex

@@ -46,6 +46,13 @@ interface ApiService {
     @DELETE("products/{id}")
     suspend fun deleteProduct(@Path("id") id: String): Response<Unit>
 
+    // ─── Master Catalog ────────────────────────────────────────────────────────
+    @GET("catalog")
+    suspend fun searchMasterCatalog(
+        @Query("search") search: String? = null,
+        @Query("limit") limit: Int = 20
+    ): Response<List<MasterCatalogResponse>>
+
     // ─── Bills ─────────────────────────────────────────────────────────────────
 
     @POST("bills")

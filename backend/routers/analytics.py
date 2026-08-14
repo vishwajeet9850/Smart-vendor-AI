@@ -72,9 +72,12 @@ def get_summary(
     ).join(
         models.Bill, models.BillItem.bill_id == models.Bill.id
     ).filter(
-        models.Bill.user_id == user_id,
         models.Bill.created_at >= start_time
     )
+
+    if user_bill_count > 0:
+        item_query = item_query.filter(models.Bill.user_id == user_id)
+
     if end_time:
         item_query = item_query.filter(models.Bill.created_at < end_time)
 
@@ -99,9 +102,12 @@ def get_summary(
         func.sum(models.Bill.total_amount).label("rev"),
         func.count(models.Bill.id).label("cnt")
     ).filter(
-        models.Bill.user_id == user_id,
         models.Bill.created_at >= start_time
     )
+
+    if user_bill_count > 0:
+        daily_query = daily_query.filter(models.Bill.user_id == user_id)
+
     if end_time:
         daily_query = daily_query.filter(models.Bill.created_at < end_time)
 
@@ -131,24 +137,30 @@ def get_summary(
 
     for p in all_products:
         # Fetch bill items for this product in last 7 days
-        items_7d = db.query(models.BillItem).join(
+        item_filter_query = db.query(models.BillItem).join(
             models.Bill, models.BillItem.bill_id == models.Bill.id
         ).filter(
-            models.Bill.user_id == user_id,
             (models.BillItem.product_id == p.id) | (models.BillItem.product_name == p.name),
             models.Bill.created_at >= last_7_days_start
-        ).all()
+        )
+        if user_bill_count > 0:
+            item_filter_query = item_filter_query.filter(models.Bill.user_id == user_id)
+
+        items_7d = item_filter_query.all()
 
         qty_7d = sum(item.quantity for item in items_7d)
         daily_velocity = qty_7d / 7.0
 
-        items_30d_qty = db.query(func.coalesce(func.sum(models.BillItem.quantity), 0)).join(
+        items_30d_query = db.query(func.coalesce(func.sum(models.BillItem.quantity), 0)).join(
             models.Bill, models.BillItem.bill_id == models.Bill.id
         ).filter(
-            models.Bill.user_id == user_id,
             (models.BillItem.product_id == p.id) | (models.BillItem.product_name == p.name),
             models.Bill.created_at >= last_30_days_start
-        ).scalar() or 0
+        )
+        if user_bill_count > 0:
+            items_30d_query = items_30d_query.filter(models.Bill.user_id == user_id)
+
+        items_30d_qty = items_30d_query.scalar() or 0
         monthly_velocity = items_30d_qty / 30.0
 
         # Determine Peak Hour Window
@@ -196,7 +208,7 @@ def get_summary(
 
             if p.stock == 0:
                 urgency = "HIGH"
-                reason = f"🚨 '{p.name.capitalize()}' is 100% OUT OF STOCK! ({qty_30d} sold recently). Immediate restock required ahead of {peak_window}."
+                reason = f"🚨 '{p.name.capitalize()}' is 100% OUT OF STOCK! ({items_30d_qty} sold recently). Immediate restock required ahead of {peak_window}."
             elif is_low_stock:
                 urgency = "HIGH"
                 reason = f"⚠️ Critical inventory level! Only {p.stock} units of '{p.name.capitalize()}' remaining. Fast turnover observed in {peak_window}."
