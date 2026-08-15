@@ -60,16 +60,29 @@ class ProductRepositoryImpl : ProductRepository {
     }
 
     override fun getProductsStream(): Flow<List<Product>> = flow {
+        if (isLoaded) {
+            emit(cachedProducts)
+        }
         try {
             val response = api.getProducts()
             if (response.isSuccessful) {
-                emit(response.body()?.map { it.toDomain() } ?: emptyList())
-            } else {
+                val list = response.body()?.map { it.toDomain() } ?: emptyList()
+                cachedProducts = list
+                isLoaded = true
+                emit(list)
+            } else if (!isLoaded) {
                 emit(emptyList())
             }
         } catch (ex: Exception) {
-            emit(emptyList())
+            if (!isLoaded) {
+                emit(emptyList())
+            }
         }
+    }
+
+    companion object {
+        @Volatile var cachedProducts: List<Product> = emptyList()
+        @Volatile var isLoaded: Boolean = false
     }
 
     override suspend fun updateStock(productId: String, targetStock: Int): Result<Unit> {
@@ -146,6 +159,19 @@ class ProductRepositoryImpl : ProductRepository {
             val response = api.deleteProduct(productId)
             if (response.isSuccessful) Result.success(Unit)
             else Result.failure(Exception("Delete failed: ${response.code()}"))
+        } catch (ex: Exception) {
+            Result.failure(ex)
+        }
+    }
+
+    override suspend fun searchMasterCatalog(query: String): Result<List<com.smartvendor.ai.network.models.MasterCatalogResponse>> {
+        return try {
+            val response = api.searchMasterCatalog(search = query, limit = 20)
+            if (response.isSuccessful) {
+                Result.success(response.body() ?: emptyList())
+            } else {
+                Result.success(emptyList())
+            }
         } catch (ex: Exception) {
             Result.failure(ex)
         }

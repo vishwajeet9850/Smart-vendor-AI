@@ -175,7 +175,7 @@ fun ScanScreen(
                         FilterChip(
                             selected = !uiState.isOcrActive,
                             onClick = { viewModel.toggleScanMode(useOcr = false) },
-                            label = { Text("📷 Barcode Scanner", fontWeight = FontWeight.Bold) },
+                            label = { Text("📷 Scanner", fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = BluePrimary,
                                 selectedLabelColor = Color.White

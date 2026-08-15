@@ -88,13 +88,24 @@ fun BarChart(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            dataPoints.forEach { (label, _) ->
+            val totalPoints = dataPoints.size
+            val step = when {
+                totalPoints > 20 -> 5
+                totalPoints > 12 -> 3
+                totalPoints > 7 -> 2
+                else -> 1
+            }
+
+            dataPoints.forEachIndexed { index, (label, _) ->
+                val formattedLabel = formatChartDate(label)
+                val showLabel = index == 0 || index == totalPoints - 1 || index % step == 0
+
                 Text(
-                    text = label.takeLast(5),
+                    text = if (showLabel) formattedLabel else "",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         color = Color.Gray,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Bold
                     ),
                     modifier = Modifier.weight(1f),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -102,5 +113,26 @@ fun BarChart(
                 )
             }
         }
+    }
+}
+
+private fun formatChartDate(rawDate: String): String {
+    if (rawDate.isBlank()) return ""
+    if (rawDate.equals("Today", ignoreCase = true)) return "Today"
+    if (rawDate.equals("Yesterday", ignoreCase = true)) return "Yesterday"
+
+    return try {
+        val parts = rawDate.split("-")
+        if (parts.size == 3) {
+            val day = parts[2].toIntOrNull() ?: return rawDate
+            val monthInt = parts[1].toIntOrNull() ?: 1
+            val monthNames = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+            val monthStr = monthNames.getOrElse((monthInt - 1).coerceIn(0, 11)) { "" }
+            "$day $monthStr"
+        } else {
+            rawDate
+        }
+    } catch (_: Exception) {
+        rawDate
     }
 }

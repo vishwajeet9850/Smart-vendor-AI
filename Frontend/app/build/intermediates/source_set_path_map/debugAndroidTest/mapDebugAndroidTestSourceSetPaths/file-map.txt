@@ -1,6 +1,6 @@
 com.smartvendor.ai.test.app-tracing-1.2.0-0 C:\Users\sadgi\.gradle\caches\8.9\transforms\5ce509059df82b1c9ee2c94fbdd63ca1\transformed\tracing-1.2.0\res
 com.smartvendor.ai.test.app-core-1.6.1-1 C:\Users\sadgi\.gradle\caches\8.9\transforms\bcff640712562159ef1b4893fec3fa44\transformed\core-1.6.1\res
-com.smartvendor.ai.test.app-androidTest-2 E:\projects\app\smartvendor\frontend\app\build\generated\res\resValues\androidTest\debug
-com.smartvendor.ai.test.app-mergeDebugAndroidTestResources-3 E:\projects\app\smartvendor\frontend\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\merged.dir
-com.smartvendor.ai.test.app-mergeDebugAndroidTestResources-4 E:\projects\app\smartvendor\frontend\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\stripped.dir
-com.smartvendor.ai.test.app-debugAndroidTest-5 E:\projects\app\smartvendor\frontend\app\build\intermediates\merged_res\debugAndroidTest\mergeDebugAndroidTestResources
+com.smartvendor.ai.test.app-androidTest-2 E:\projects\app\Smart-vendor-AI\frontend\app\build\generated\res\resValues\androidTest\debug
+com.smartvendor.ai.test.app-mergeDebugAndroidTestResources-3 E:\projects\app\Smart-vendor-AI\frontend\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\merged.dir
+com.smartvendor.ai.test.app-mergeDebugAndroidTestResources-4 E:\projects\app\Smart-vendor-AI\frontend\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\stripped.dir
+com.smartvendor.ai.test.app-debugAndroidTest-5 E:\projects\app\Smart-vendor-AI\frontend\app\build\intermediates\merged_res\debugAndroidTest\mergeDebugAndroidTestResources

@@ -4,6 +4,11 @@ AI/runs/
 AI/models/
 AI/datasets/
 
+# Gradle & Build
+.gradle/
+**/build/
+**/.gradle/
+
 # Python
 **/__pycache__/
 *.py[cod]
@@ -11,6 +16,14 @@ AI/datasets/
 # IDE
 .vscode/
 .idea/
+
+# Credentials & Secrets (CRITICAL SECURITY)
+serviceAccountKey.json
+**/serviceAccountKey.json
+*.json
+*.pem
+*.key
+.env
 
 # OS
 Thumbs.db
