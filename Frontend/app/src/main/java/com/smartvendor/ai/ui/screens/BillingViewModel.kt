@@ -91,6 +91,9 @@ class BillingViewModel(
             grandTotal = grandTotal
         )
         _uiState.update { it.copy(bill = updatedBill) }
+        viewModelScope.launch {
+            salesRepository.saveBill(updatedBill)
+        }
     }
 
     fun performCheckout(onSuccess: (String) -> Unit) {

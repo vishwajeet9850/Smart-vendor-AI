@@ -14,10 +14,21 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class UrgentStockAlert(
+    val id: String,
+    val name: String,
+    val currentStock: Int,
+    val lowStockThreshold: Int,
+    val category: String,
+    val isOutOfStock: Boolean
+)
+
 data class DashboardUiState(
     val userName: String = "Shopkeeper",
     val storeName: String = "SmartVendor Store",
     val openBillId: String? = null,
+    val urgentStockAlerts: List<UrgentStockAlert> = emptyList(),
+    val showNotificationDialog: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null
 )
@@ -25,7 +36,8 @@ data class DashboardUiState(
 class DashboardViewModel(
     private val authRepository: AuthRepository = AuthRepositoryImpl(),
     private val salesRepository: SalesRepository = SalesRepositoryImpl(),
-    private val storeRepository: StoreRepository = StoreRepositoryImpl()
+    private val storeRepository: StoreRepository = StoreRepositoryImpl(),
+    private val productRepository: com.smartvendor.ai.repository.ProductRepository = com.smartvendor.ai.repository.ProductRepositoryImpl()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -33,6 +45,7 @@ class DashboardViewModel(
 
     init {
         loadDashboardData()
+        observeUrgentStockAlerts()
     }
 
     private fun loadDashboardData() {
@@ -63,6 +76,28 @@ class DashboardViewModel(
         }
     }
 
+    private fun observeUrgentStockAlerts() {
+        viewModelScope.launch {
+            productRepository.getProductsStream().collect { products ->
+                val alerts = products
+                    .filter { it.stock <= it.lowStockThreshold || it.stock == 0 }
+                    .map {
+                        UrgentStockAlert(
+                            id = it.id,
+                            name = it.name,
+                            currentStock = it.stock,
+                            lowStockThreshold = it.lowStockThreshold,
+                            category = it.category,
+                            isOutOfStock = it.stock == 0
+                        )
+                    }
+                    .sortedWith(compareBy({ !it.isOutOfStock }, { it.currentStock }))
+
+                _uiState.update { it.copy(urgentStockAlerts = alerts) }
+            }
+        }
+    }
+
     private suspend fun checkOpenBillingSession() {
         val result = salesRepository.getOpenBillingSession()
         result.onSuccess { openBill ->
@@ -70,24 +105,21 @@ class DashboardViewModel(
         }
     }
 
-    fun startOrResumeNewBill(onBillCreated: (String) -> Unit) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val existingOpenId = _uiState.value.openBillId
-            if (existingOpenId != null) {
-                _uiState.update { it.copy(isLoading = false) }
-                onBillCreated(existingOpenId)
-                return@launch
-            }
+    fun toggleNotificationDialog(show: Boolean) {
+        _uiState.update { it.copy(showNotificationDialog = show) }
+    }
 
-            val result = salesRepository.createNewBillingSession("cashier_01", "store_01")
-            result.onSuccess { bill ->
-                _uiState.update { it.copy(isLoading = false, openBillId = bill.billId) }
-                onBillCreated(bill.billId)
-            }.onFailure { err ->
-                _uiState.update { it.copy(isLoading = false, errorMessage = err.message ?: "Failed to start bill") }
-            }
+    fun quickRestock(productId: String, addedUnits: Int = 20) {
+        viewModelScope.launch {
+            val alert = _uiState.value.urgentStockAlerts.firstOrNull { it.id == productId } ?: return@launch
+            val target = alert.currentStock + addedUnits
+            productRepository.updateStock(productId, target)
         }
+    }
+
+    fun startOrResumeNewBill(onBillCreated: (String) -> Unit) {
+        val newBillId = "BILL_${System.currentTimeMillis()}"
+        onBillCreated(newBillId)
     }
 
     fun clearError() {

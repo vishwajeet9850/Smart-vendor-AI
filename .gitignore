@@ -28,3 +28,7 @@ serviceAccountKey.json
 # OS
 Thumbs.db
 .DS_Store
+
+# Sensitive & Backup Files
+Backup-codes-*.txt
+*.db

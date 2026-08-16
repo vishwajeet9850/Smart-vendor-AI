@@ -23,12 +23,13 @@ app.add_middleware(
 )
 
 # Register routers
-from routers import products, bills, analytics, store, catalog
+from routers import products, bills, analytics, store, catalog, detect
 app.include_router(products.router)
 app.include_router(bills.router)
 app.include_router(analytics.router)
 app.include_router(store.router)
 app.include_router(catalog.router)
+app.include_router(detect.router)
 
 
 @app.get("/", tags=["Health"])

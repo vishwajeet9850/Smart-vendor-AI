@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,6 +62,19 @@ fun ScanScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasCameraPermission = isGranted
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshBill()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     LaunchedEffect(key1 = billId) {
@@ -175,7 +190,7 @@ fun ScanScreen(
                         FilterChip(
                             selected = !uiState.isOcrActive,
                             onClick = { viewModel.toggleScanMode(useOcr = false) },
-                            label = { Text("📷 Scanner", fontWeight = FontWeight.Bold) },
+                            label = { Text("📷 AI Scanner", fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = BluePrimary,
                                 selectedLabelColor = Color.White
@@ -203,19 +218,85 @@ fun ScanScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     AnimatedVisibility(
-                        visible = uiState.detectedProduct != null,
+                        visible = uiState.detectedProduct != null || uiState.detectedProductsList.isNotEmpty(),
                         enter = slideInVertically { it } + fadeIn(),
                         exit = slideOutVertically { it } + fadeOut()
                     ) {
-                        uiState.detectedProduct?.let { product ->
-                            DetectedProductCard(
-                                product = product,
+                        if (uiState.detectedProductsList.size > 1) {
+                            MultiProductDetectedCard(
+                                products = uiState.detectedProductsList,
+                                selectedProduct = uiState.detectedProduct ?: uiState.detectedProductsList.first(),
                                 selectedQuantity = uiState.selectedQuantity,
+                                onSelectProduct = { viewModel.selectDetectedProduct(it) },
+                                onRemoveProduct = { viewModel.removeDetectedProductFromList(it) },
                                 onIncrease = { viewModel.increaseQuantity() },
                                 onDecrease = { viewModel.decreaseQuantity() },
-                                onAdd = { viewModel.addProductToBill() },
+                                onAddSingle = { viewModel.addProductToBill() },
+                                onAddAll = { viewModel.addAllDetectedProductsToBill() },
                                 onCancel = { viewModel.cancelDetection() }
                             )
+                        } else {
+                            uiState.detectedProduct?.let { product ->
+                                DetectedProductCard(
+                                    product = product,
+                                    selectedQuantity = uiState.selectedQuantity,
+                                    onIncrease = { viewModel.increaseQuantity() },
+                                    onDecrease = { viewModel.decreaseQuantity() },
+                                    onAdd = { viewModel.addProductToBill() },
+                                    onCancel = { viewModel.cancelDetection() }
+                                )
+                            }
+                        }
+                    }
+
+                    // Live Auto-Added Feedback Pill with Instant Undo
+                    AnimatedVisibility(
+                        visible = uiState.lastAutoAddedProduct != null,
+                        enter = slideInVertically { it } + fadeIn(),
+                        exit = slideOutVertically { it } + fadeOut()
+                    ) {
+                        uiState.lastAutoAddedProduct?.let { product ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = AccentGreen.copy(alpha = 0.95f)),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                        Column {
+                                            Text(
+                                                text = "+1 ${product.name}",
+                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                                            )
+                                            Text(
+                                                text = "₹${"%.2f".format(product.price)} added to bill",
+                                                style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.85f))
+                                            )
+                                        }
+                                    }
+
+                                    TextButton(
+                                        onClick = { viewModel.undoLastAutoAddedProduct() },
+                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+                                    ) {
+                                        Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Undo", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -533,6 +614,205 @@ fun DetectedProductCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Add to Bill")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MultiProductDetectedCard(
+    products: List<Product>,
+    selectedProduct: Product,
+    selectedQuantity: Int,
+    onSelectProduct: (Product) -> Unit,
+    onRemoveProduct: (Product) -> Unit,
+    onIncrease: () -> Unit,
+    onDecrease: () -> Unit,
+    onAddSingle: () -> Unit,
+    onAddAll: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Multi-Detection Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🎯 ${products.size} Products in Frame",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                Surface(
+                    color = BluePrimary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "Total ₹${"%.2f".format(products.sumOf { it.price })}",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = BluePrimary
+                        )
+                    )
+                }
+            }
+
+            // Horizontal Chips of all detected products with instant 'X' remove button
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(products) { item ->
+                    val isSelected = (item.id == selectedProduct.id)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onSelectProduct(item) },
+                        label = {
+                            Text(
+                                text = "${item.name} • ₹${item.price.toInt()}",
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        trailingIcon = {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Remove ${item.name}",
+                                tint = if (isSelected) Color.White else Color.Gray,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { onRemoveProduct(item) }
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BluePrimary,
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
+
+            // Focused Product Card Details
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = selectedProduct.name,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Stock: ${selectedProduct.stock} available",
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "₹${"%.2f".format(selectedProduct.price)}",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = BluePrimary
+                                )
+                            )
+                            IconButton(
+                                onClick = { onRemoveProduct(selectedProduct) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = "Remove item",
+                                    tint = Color.Red.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Quantity controls for focused item
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Quantity:",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(
+                                onClick = onDecrease,
+                                enabled = selectedQuantity > 1,
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                            ) {
+                                Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
+                            }
+
+                            Text(
+                                text = "$selectedQuantity",
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+                            )
+
+                            IconButton(
+                                onClick = onIncrease,
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Action Buttons: Cancel, Add This, Add All
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(0.7f)
+                ) {
+                    Text("Cancel")
+                }
+
+                Button(
+                    onClick = onAddAll,
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+                    modifier = Modifier.weight(1.3f)
+                ) {
+                    Icon(Icons.Default.AddShoppingCart, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add All (${products.size})", fontWeight = FontWeight.Bold)
                 }
             }
         }

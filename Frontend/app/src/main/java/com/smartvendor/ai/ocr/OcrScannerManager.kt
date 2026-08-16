@@ -1,5 +1,6 @@
 package com.smartvendor.ai.ocr
 
+import android.graphics.Rect
 import android.util.Log
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageProxy
@@ -43,6 +44,7 @@ class OcrScannerManager {
         "dairy milk" to PackagingColor.BLUE,
         "dairy milk silk" to PackagingColor.PURPLE,
         "jim jam" to PackagingColor.PURPLE,
+        "jimjam" to PackagingColor.PURPLE,
         "soya sticks" to PackagingColor.ORANGE,
         "hide and seek" to PackagingColor.ORANGE,
         "bourbon" to PackagingColor.ORANGE,
@@ -63,12 +65,37 @@ class OcrScannerManager {
 
     private val fontAliasesMap = mapOf(
         "ore0" to "oreo", "0reo" to "oreo", "oreq" to "oreo", "orco" to "oreo", "cakoy" to "oreo", "qikany" to "oreo",
-        "naggi" to "maggi", "maggl" to "maggi", "meggi" to "maggi", "mggi" to "maggi",
+        "naggi" to "maggi", "maggl" to "maggi", "meggi" to "maggi", "mggi" to "maggi", "2-minute" to "maggi", "2 minute" to "maggi", "masala maggi" to "maggi",
         "layss" to "lays chips", "lais" to "lays chips", "layz" to "lays chips", "lay's" to "lays chips",
-        "ashirvad" to "aashirvaad atta", "aashirvad" to "aashirvaad atta",
-        "hide 3seek" to "hide and seek", "hde seek" to "hide and seek",
-        "jimjan" to "jim jam", "jimiam" to "jim jam",
-        "soya stica" to "soya sticks"
+        "ashirvad" to "aashirvaad atta",
+        "hide 3seek" to "hide and seek", "hde seek" to "hide and seek", "hide & seek" to "hide and seek",
+        "jimjan" to "jim jam", "jimiam" to "jim jam", "jimyam" to "jim jam", "jimjam" to "jim jam", "naughty jam" to "jim jam",
+        "soya stica" to "soya sticks", "soya stic" to "soya sticks",
+        "surf excel" to "surf excel", "surf" to "surf excel", "excel" to "surf excel",
+        "appy" to "appy fizz", "fizz" to "appy fizz", "appe fizz" to "appy fizz"
+    )
+
+    private val noiseWords = setOf(
+        "net", "wt", "mfg", "exp", "batch", "pack", "ingredients", "made", "india",
+        "mrp", "incl", "taxes", "tax", "customer", "care", "lic", "iso", "store",
+        "cool", "dry", "place", "recyclable", "use", "best", "before", "date",
+        "weight", "grams", "kilograms", "quantity", "address", "marketed",
+        "manufactured", "ltd", "pvt", "corp", "inc", "product", "details", "contact",
+        "nutrition", "nutritional", "facts", "information", "per", "serve", "serving",
+        "size", "energy", "protein", "carbohydrate", "sugar", "fat", "saturated",
+        "trans", "cholesterol", "sodium", "calcium", "iron", "vitamins", "minerals",
+        "vegetarian", "veg", "green", "dot", "fssai", "license", "reg", "tm",
+        "copyright", "all", "rights", "reserved", "keep", "away", "direct", "sunlight",
+        "hygienic", "conditions", "dispose", "dustbin", "scan", "qr", "feedback",
+        "helpline", "toll", "free", "email", "website", "www", "com", "in",
+        "barcode", "dop", "pkd", "by", "months", "from", "packaging", "super",
+        "saver", "offer", "inside", "new", "improved", "taste", "delicious",
+        "crunchy", "crispy", "snack", "tasty", "yummy", "original", "formula",
+        "imported", "distributed", "packed", "contains", "added", "flavour",
+        "artificial", "natural", "identical", "flavouring", "substances", "preservative",
+        "acidity", "regulator", "emulsifier", "stabilizer", "thickener", "color", "colour",
+        "allergen", "advice", "may", "contain", "traces", "of", "milk", "wheat", "soy",
+        "nuts", "gluten", "peanuts", "sesame", "warning", "caution", "safety", "seal"
     )
 
     fun levenshteinDistance(s1: String, s2: String): Int {
@@ -129,7 +156,6 @@ class OcrScannerManager {
             }
         }
 
-        // Glare-tolerant brand guards (catches maazza, maza, snickkers, soya)
         if ((sRaw.contains("soya") || sNorm.contains("soya")) && !tNorm.contains("soya")) return true
         if ((sRaw.contains("snicker") || sNorm.contains("sniker")) && !tNorm.contains("sniker")) return true
         if ((sRaw.contains("maaza") || sNorm.contains("maza")) && !tNorm.contains("maza")) return true
@@ -146,7 +172,7 @@ class OcrScannerManager {
     private val standalonePriceRegex = Regex("""\b(\d{1,4}(?:\.\d{1,2})?)\b""")
 
     private val quantityUnitRegex = Regex(
-        """\b(\d+(?:\.\d+)?\s*(?:kg|g|gm|l|ml|ltr|litre|pack|pc|pcs|pouch|sachet|g|kg))\b""",
+        """\b(\d+(?:\.\d+)?\s*(?:kg|g|gm|l|ml|ltr|litre|pack|pc|pcs|pouch|sachet))\b""",
         RegexOption.IGNORE_CASE
     )
 
@@ -192,32 +218,30 @@ class OcrScannerManager {
                     detectedUnit = unitMatch.groupValues[1].uppercase(Locale.getDefault())
                 }
 
-                // 3. Extract Clean Product Name Lines (Strict Noise Filter)
-                val noiseWords = setOf(
-                    "net", "wt", "mfg", "exp", "batch", "pack", "ingredients", "made", "india",
-                    "mrp", "incl", "taxes", "tax", "customer", "care", "lic", "iso", "store",
-                    "cool", "dry", "place", "recyclable", "use", "best", "before", "date",
-                    "weight", "grams", "kilograms", "quantity", "address", "marketed",
-                    "manufactured", "ltd", "pvt", "corp", "inc", "product", "details", "contact"
-                )
-
-                val lines = visionText.textBlocks.flatMap { it.lines }
-                val nameCandidates = lines
-                    .map { it.text.trim() }
+                // 3. Extract Clean Brand/Product Lines (Sort by Bounding Box Area -> Biggest font title first!)
+                val allLines = visionText.textBlocks.flatMap { it.lines }
+                val validLines = allLines
                     .filter { line ->
-                        if (line.length < 4 || line.length > 45) return@filter false
-                        if (priceRegex.containsMatchIn(line)) return@filter false
+                        val text = line.text.trim()
+                        if (text.length < 3 || text.length > 40) return@filter false
+                        if (priceRegex.containsMatchIn(text)) return@filter false
 
-                        val lineLower = line.lowercase(Locale.getDefault())
-                        val tokens = lineLower.split(Regex("""\s+""")).filter { it.isNotBlank() }
+                        val lineLower = text.lowercase(Locale.getDefault())
+                        val tokens = lineLower.split(Regex("""[\s\-_,.:;]+""")).filter { it.isNotBlank() }
 
-                        // Reject if line is composed purely of noise words
-                        val nonNoiseTokens = tokens.filter { t -> t !in noiseWords && t.length > 1 }
+                        // Check if line is meaningful non-noise text
+                        val nonNoiseTokens = tokens.filter { t -> t !in noiseWords && t.length >= 2 }
                         nonNoiseTokens.isNotEmpty()
                     }
+                    // Sort descending by text area so largest brand logo font is ranked first!
+                    .sortedByDescending { line ->
+                        val box = line.boundingBox ?: Rect()
+                        box.width() * box.height()
+                    }
 
-                if (nameCandidates.isNotEmpty()) {
-                    detectedName = nameCandidates.first()
+                if (validLines.isNotEmpty()) {
+                    val topCandidateText = validLines.first().text.trim()
+                    detectedName = topCandidateText
                         .lowercase(Locale.getDefault())
                         .split(" ")
                         .joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
@@ -225,7 +249,7 @@ class OcrScannerManager {
 
                 // Fallback Price detection
                 if (detectedPrice == null) {
-                    lines.forEach { line ->
+                    allLines.forEach { line ->
                         if (line.text.contains("₹") || line.text.contains("Rs", ignoreCase = true)) {
                             val match = standalonePriceRegex.find(line.text)
                             if (match != null) {
@@ -293,7 +317,7 @@ class OcrScannerManager {
 
                     if (yIndex < yBuffer.capacity() && uvIndex < uBuffer.capacity() && uvIndex < vBuffer.capacity()) {
                         val Y = yBuffer.get(yIndex).toInt() and 0xFF
-                        if (Y > 235) continue // Filter out specular glare whiteout pixels from bright light!
+                        if (Y > 235) continue
 
                         val U = uBuffer.get(uvIndex).toInt() and 0xFF - 128
                         val V = vBuffer.get(uvIndex).toInt() and 0xFF - 128
@@ -318,19 +342,19 @@ class OcrScannerManager {
 
             val hsv = FloatArray(3)
             android.graphics.Color.RGBToHSV(avgR.toInt(), avgG.toInt(), avgB.toInt(), hsv)
-
             val hue = hsv[0]
             val sat = hsv[1]
+            val value = hsv[2]
 
-            if (sat < 0.12f) return PackagingColor.UNKNOWN
+            if (sat < 0.20f) return PackagingColor.UNKNOWN
 
-            when (hue) {
-                in 350.0f..360.0f, in 0.0f..18.0f -> PackagingColor.RED
-                in 19.0f..44.0f -> PackagingColor.ORANGE
-                in 45.0f..75.0f -> PackagingColor.YELLOW
-                in 76.0f..160.0f -> PackagingColor.GREEN
-                in 161.0f..255.0f -> PackagingColor.BLUE
-                in 256.0f..349.0f -> PackagingColor.PURPLE
+            when {
+                hue in 345f..360f || hue in 0f..20f -> PackagingColor.RED
+                hue in 21f..50f -> PackagingColor.ORANGE
+                hue in 51f..75f -> PackagingColor.YELLOW
+                hue in 76f..160f -> PackagingColor.GREEN
+                hue in 180f..260f -> PackagingColor.BLUE
+                hue in 261f..320f -> PackagingColor.PURPLE
                 else -> PackagingColor.UNKNOWN
             }
         } catch (e: Exception) {
@@ -339,45 +363,41 @@ class OcrScannerManager {
     }
 
     /**
-     * Fuzzy Product Matcher Engine
-     * Evaluates OCR extracted result against store inventory using an 80%+ threshold requirement.
-     * Compares both Product Name and Quantity/Unit.
+     * Ranked Store Inventory Matcher Engine with High-Precision Filtering.
      */
-    fun findBestInventoryMatch(
+    fun findRankedInventoryMatches(
         ocrResult: OcrResult,
         inventoryProducts: List<Product>,
-        threshold: Float = 0.35f
-    ): Product? {
-        if (inventoryProducts.isEmpty()) return null
+        threshold: Float = 0.60f
+    ): List<Product> {
+        if (inventoryProducts.isEmpty()) return emptyList()
 
-        var bestProduct: Product? = null
-        var highestScore = 0.0f
+        val matches = mutableListOf<Pair<Product, Float>>()
 
         val scannedNameLower = ocrResult.fullCombinedName.lowercase(Locale.getDefault())
-        val scannedTokens = scannedNameLower.split(Regex("""\s+""")).filter { it.length > 1 }
+        val scannedTokens = scannedNameLower.split(Regex("""[\s\-_,.:;]+""")).filter { it.length >= 2 }
+
+        if (scannedTokens.isEmpty()) return emptyList()
 
         for (product in inventoryProducts) {
             val catalogNameLower = product.name.lowercase(Locale.getDefault())
-            val catalogTokens = catalogNameLower.split(Regex("""\s+""")).filter { it.length > 1 }
+            val catalogTokens = catalogNameLower.split(Regex("""[\s\-_,.:;]+""")).filter { it.length >= 2 }
 
-            if (catalogTokens.isEmpty() || scannedTokens.isEmpty()) continue
+            if (catalogTokens.isEmpty()) continue
+            if (isConflictingPair(scannedNameLower, catalogNameLower)) continue
 
-            // 0. Anti-Confusion Guard Check (Block known confusing pairs like Maggi vs Maaza)
-            if (isConflictingPair(scannedNameLower, catalogNameLower)) {
-                continue
-            }
-
-            // 1. Token Overlap Score
+            // 1. Direct Keyword / Token Containment (e.g. "maggi" in "Maggi 2-Minute")
             val matchingTokens = scannedTokens.count { token ->
                 catalogTokens.any { catToken -> catToken.contains(token) || token.contains(catToken) }
             }
 
-            var tokenScore = matchingTokens.toFloat() / maxOf(scannedTokens.size, catalogTokens.size).toFloat()
+            var tokenScore = if (matchingTokens > 0) {
+                matchingTokens.toFloat() / maxOf(scannedTokens.size, catalogTokens.size).toFloat()
+            } else 0f
 
-            // 2. Levenshtein Character Distance Similarity Boost for Stylized Fonts
-            val levSim = charSimilarity(scannedNameLower, catalogNameLower)
-            if (levSim >= 0.50f) {
-                tokenScore = maxOf(tokenScore, levSim)
+            // 2. Substring Match Boost
+            if (catalogNameLower.contains(scannedNameLower) || scannedNameLower.contains(catalogNameLower)) {
+                tokenScore = maxOf(tokenScore, 0.90f)
             }
 
             // 3. Known Stylized Font Alias Mapping Boost
@@ -386,169 +406,21 @@ class OcrScannerManager {
                 tokenScore = maxOf(tokenScore, 0.95f)
             }
 
-            // Exact match
-            if (scannedNameLower == catalogNameLower) {
-                tokenScore = 1.0f
-            }
-
-            // Unit Check: If unit specified in OCR (e.g. 1kg vs 500g), enforce unit match
-            if (!ocrResult.quantityUnit.isNullOrBlank()) {
-                val scannedUnit = ocrResult.quantityUnit.lowercase()
-                val catalogHasUnit = catalogNameLower.contains(scannedUnit)
-                if (!catalogHasUnit) {
-                    tokenScore *= 0.60f
-                } else {
-                    tokenScore = minOf(1.0f, tokenScore + 0.15f)
-                }
-            }
-
-            // Packaging Color Signature Boost (+20%)
-            val targetColor = productColorSignatures[product.name.lowercase(Locale.getDefault())]
-            if (targetColor != null && ocrResult.detectedColor != PackagingColor.UNKNOWN) {
-                if (targetColor == ocrResult.detectedColor) {
-                    tokenScore = minOf(1.0f, tokenScore + 0.20f)
-                }
-            }
-
-            if (tokenScore > highestScore) {
-                highestScore = tokenScore
-                bestProduct = product
-            }
-        }
-
-        return if (highestScore >= threshold) bestProduct else null
-    }
-
-    /**
-     * Strict Catalog Matcher Engine for 6,000 Master Catalog Reference Items.
-     * Requires minimum 75% token overlap similarity so random text never matches!
-     */
-    fun findBestCatalogMatch(
-        ocrResult: OcrResult,
-        catalogItems: List<com.smartvendor.ai.network.models.MasterCatalogResponse>,
-        threshold: Float = 0.75f
-    ): com.smartvendor.ai.network.models.MasterCatalogResponse? {
-        if (catalogItems.isEmpty()) return null
-
-        var bestItem: com.smartvendor.ai.network.models.MasterCatalogResponse? = null
-        var highestScore = 0.0f
-
-        val scannedNameLower = ocrResult.fullCombinedName.lowercase(Locale.getDefault())
-        val scannedTokens = scannedNameLower.split(Regex("""\s+""")).filter { it.length > 1 }
-
-        if (scannedTokens.isEmpty()) return null
-
-        for (item in catalogItems) {
-            val catalogNameLower = item.name.lowercase(Locale.getDefault())
-            val catalogTokens = catalogNameLower.split(Regex("""\s+""")).filter { it.length > 1 }
-
-            if (catalogTokens.isEmpty()) continue
-
-            // 0. Anti-Confusion Guard Check (Block known confusing pairs like Maggi vs Maaza)
-            if (isConflictingPair(scannedNameLower, catalogNameLower)) {
-                continue
-            }
-
-            // Exact match
-            if (scannedNameLower == catalogNameLower) {
-                return item
-            }
-
-            // Token overlap score
-            val matchingTokens = scannedTokens.count { token ->
-                catalogTokens.any { catToken -> catToken.contains(token) || token.contains(catToken) }
-            }
-
-            var tokenScore = matchingTokens.toFloat() / maxOf(scannedTokens.size, catalogTokens.size).toFloat()
-
-            // Substring containment boost
-            if (catalogNameLower.contains(scannedNameLower) || scannedNameLower.contains(catalogNameLower)) {
-                tokenScore = maxOf(tokenScore, 0.85f)
-            }
-
-            // Levenshtein Character Distance Similarity Boost for Stylized Fonts
+            // 4. Levenshtein Character Distance Similarity Boost
             val levSim = charSimilarity(scannedNameLower, catalogNameLower)
-            if (levSim >= 0.50f) {
+            if (levSim >= 0.65f) {
                 tokenScore = maxOf(tokenScore, levSim)
-            }
-
-            // Known Stylized Font Alias Mapping Boost
-            val aliasTarget = fontAliasesMap[scannedNameLower]
-            if (aliasTarget != null && catalogNameLower.contains(aliasTarget)) {
-                tokenScore = maxOf(tokenScore, 0.95f)
-            }
-
-            // Packaging Color Signature Boost (+20%)
-            val targetColor = productColorSignatures[item.name.lowercase(Locale.getDefault())]
-            if (targetColor != null && ocrResult.detectedColor != PackagingColor.UNKNOWN) {
-                if (targetColor == ocrResult.detectedColor) {
-                    tokenScore = minOf(1.0f, tokenScore + 0.20f)
-                }
-            }
-
-            if (tokenScore > highestScore) {
-                highestScore = tokenScore
-                bestItem = item
-            }
-        }
-
-        return if (highestScore >= threshold) bestItem else null
-    }
-
-    fun findRankedInventoryMatches(
-        ocrResult: OcrResult,
-        inventoryProducts: List<Product>,
-        threshold: Float = 0.45f
-    ): List<Product> {
-        if (inventoryProducts.isEmpty()) return emptyList()
-
-        val matches = mutableListOf<Pair<Product, Float>>()
-
-        val scannedNameLower = ocrResult.fullCombinedName.lowercase(Locale.getDefault())
-        val scannedTokens = scannedNameLower.split(Regex("""\s+""")).filter { it.length > 1 }
-
-        for (product in inventoryProducts) {
-            val catalogNameLower = product.name.lowercase(Locale.getDefault())
-            val catalogTokens = catalogNameLower.split(Regex("""\s+""")).filter { it.length > 1 }
-
-            if (catalogTokens.isEmpty() || scannedTokens.isEmpty()) continue
-
-            if (isConflictingPair(scannedNameLower, catalogNameLower)) continue
-
-            val matchingTokens = scannedTokens.count { token ->
-                catalogTokens.any { catToken -> catToken.contains(token) || token.contains(catToken) }
-            }
-
-            var tokenScore = matchingTokens.toFloat() / maxOf(scannedTokens.size, catalogTokens.size).toFloat()
-
-            val levSim = charSimilarity(scannedNameLower, catalogNameLower)
-            if (levSim >= 0.50f) {
-                tokenScore = maxOf(tokenScore, levSim)
-            }
-
-            val aliasTarget = fontAliasesMap[scannedNameLower]
-            if (aliasTarget != null && catalogNameLower.contains(aliasTarget)) {
-                tokenScore = maxOf(tokenScore, 0.95f)
             }
 
             if (scannedNameLower == catalogNameLower) {
                 tokenScore = 1.0f
             }
 
-            if (!ocrResult.quantityUnit.isNullOrBlank()) {
-                val scannedUnit = ocrResult.quantityUnit.lowercase()
-                val catalogHasUnit = catalogNameLower.contains(scannedUnit)
-                if (!catalogHasUnit) {
-                    tokenScore *= 0.60f
-                } else {
-                    tokenScore = minOf(1.0f, tokenScore + 0.15f)
-                }
-            }
-
+            // Color boost
             val targetColor = productColorSignatures[product.name.lowercase(Locale.getDefault())]
             if (targetColor != null && ocrResult.detectedColor != PackagingColor.UNKNOWN) {
                 if (targetColor == ocrResult.detectedColor) {
-                    tokenScore = minOf(1.0f, tokenScore + 0.20f)
+                    tokenScore = minOf(1.0f, tokenScore + 0.15f)
                 }
             }
 
@@ -560,26 +432,28 @@ class OcrScannerManager {
         return matches.sortedByDescending { it.second }.map { it.first }
     }
 
+    /**
+     * Strict Catalog Matcher Engine for 6,000 Master Catalog Reference Items.
+     */
     fun findRankedCatalogMatches(
         ocrResult: OcrResult,
         catalogItems: List<com.smartvendor.ai.network.models.MasterCatalogResponse>,
-        threshold: Float = 0.50f
+        threshold: Float = 0.75f
     ): List<com.smartvendor.ai.network.models.MasterCatalogResponse> {
         if (catalogItems.isEmpty()) return emptyList()
 
         val matches = mutableListOf<Pair<com.smartvendor.ai.network.models.MasterCatalogResponse, Float>>()
 
         val scannedNameLower = ocrResult.fullCombinedName.lowercase(Locale.getDefault())
-        val scannedTokens = scannedNameLower.split(Regex("""\s+""")).filter { it.length > 1 }
+        val scannedTokens = scannedNameLower.split(Regex("""[\s\-_,.:;]+""")).filter { it.length >= 2 }
 
         if (scannedTokens.isEmpty()) return emptyList()
 
         for (item in catalogItems) {
             val catalogNameLower = item.name.lowercase(Locale.getDefault())
-            val catalogTokens = catalogNameLower.split(Regex("""\s+""")).filter { it.length > 1 }
+            val catalogTokens = catalogNameLower.split(Regex("""[\s\-_,.:;]+""")).filter { it.length >= 2 }
 
             if (catalogTokens.isEmpty()) continue
-
             if (isConflictingPair(scannedNameLower, catalogNameLower)) continue
 
             var tokenScore = 0.0f
@@ -594,11 +468,11 @@ class OcrScannerManager {
                 tokenScore = matchingTokens.toFloat() / maxOf(scannedTokens.size, catalogTokens.size).toFloat()
 
                 if (catalogNameLower.contains(scannedNameLower) || scannedNameLower.contains(catalogNameLower)) {
-                    tokenScore = maxOf(tokenScore, 0.85f)
+                    tokenScore = maxOf(tokenScore, 0.90f)
                 }
 
                 val levSim = charSimilarity(scannedNameLower, catalogNameLower)
-                if (levSim >= 0.50f) {
+                if (levSim >= 0.70f) {
                     tokenScore = maxOf(tokenScore, levSim)
                 }
 
@@ -610,7 +484,7 @@ class OcrScannerManager {
                 val targetColor = productColorSignatures[item.name.lowercase(Locale.getDefault())]
                 if (targetColor != null && ocrResult.detectedColor != PackagingColor.UNKNOWN) {
                     if (targetColor == ocrResult.detectedColor) {
-                        tokenScore = minOf(1.0f, tokenScore + 0.20f)
+                        tokenScore = minOf(1.0f, tokenScore + 0.10f)
                     }
                 }
             }

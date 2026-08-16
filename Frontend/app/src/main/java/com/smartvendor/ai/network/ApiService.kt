@@ -46,13 +46,6 @@ interface ApiService {
     @DELETE("products/{id}")
     suspend fun deleteProduct(@Path("id") id: String): Response<Unit>
 
-    // ─── Master Catalog ────────────────────────────────────────────────────────
-    @GET("catalog")
-    suspend fun searchMasterCatalog(
-        @Query("search") search: String? = null,
-        @Query("limit") limit: Int = 20
-    ): Response<List<MasterCatalogResponse>>
-
     // ─── Bills ─────────────────────────────────────────────────────────────────
 
     @POST("bills")
@@ -74,4 +67,22 @@ interface ApiService {
         @Query("days") days: Int = 30,
         @Query("range_type") rangeType: String? = null
     ): Response<AnalyticsSummaryResponse>
+
+    // ─── YOLO Detection ────────────────────────────────────────────────────────
+
+    /** Send a base64 JPEG camera frame and get back YOLO product detections. */
+    @POST("detect/base64")
+    suspend fun detectFromBase64(@Body body: YoloDetectRequest): Response<YoloDetectResponse>
+
+    /** Get the list of product classes the model was trained on. */
+    @GET("detect/classes")
+    suspend fun getYoloClasses(): Response<Map<String, Any>>
+
+    // ─── Master Catalog ────────────────────────────────────────────────────────
+
+    @GET("catalog")
+    suspend fun searchMasterCatalog(
+        @Query("search") search: String? = null,
+        @Query("limit") limit: Int = 20
+    ): Response<List<MasterCatalogResponse>>
 }

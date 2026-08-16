@@ -186,37 +186,57 @@ def get_summary(
         if hour_counts.get(peak_window, 0) == 0:
             peak_window = "General Demand"
 
-        # Detect Surge & Urgency
-        is_surge = (daily_velocity > monthly_velocity * 1.25) and qty_7d >= 3
-        is_low_stock = p.stock <= p.low_stock_threshold or p.stock <= 5
+        # Calculate 7d vs prior period velocity
+        prev_7d_start = now - timedelta(days=14)
+        items_prev_7d_query = db.query(func.coalesce(func.sum(models.BillItem.quantity), 0)).join(
+            models.Bill, models.BillItem.bill_id == models.Bill.id
+        ).filter(
+            (models.BillItem.product_id == p.id) | (models.BillItem.product_name == p.name),
+            models.Bill.created_at >= prev_7d_start,
+            models.Bill.created_at < last_7_days_start
+        )
+        if user_bill_count > 0:
+            items_prev_7d_query = items_prev_7d_query.filter(models.Bill.user_id == user_id)
+        qty_prev_7d = items_prev_7d_query.scalar() or 0
 
-        if is_low_stock or is_surge or daily_velocity >= 1.0:
+        # Detect true demand surge (comparing week-over-week velocity)
+        is_true_surge = (qty_prev_7d > 0 and qty_7d >= qty_prev_7d * 1.5 and qty_7d >= 3)
+        is_low_stock = (p.stock <= p.low_stock_threshold or p.stock <= 5)
+        is_out_of_stock = (p.stock == 0)
+
+        if is_out_of_stock or is_low_stock or is_true_surge or daily_velocity >= 0.5 or qty_7d >= 2:
             buffer_days = 7
             target_stock = max(int(daily_velocity * buffer_days), 15)
-            if is_surge:
+            if is_true_surge:
                 target_stock = int(target_stock * 1.5)
 
             reorder_amt = max(target_stock - p.stock, 10)
 
-            if is_surge:
-                pct = int((daily_velocity / (monthly_velocity or 1.0) - 1.0) * 100)
-                velocity_text = f"⚡ Seasonal Surge (+{max(pct, 25)}%)"
-            elif daily_velocity >= 2.0:
-                velocity_text = f"🔥 Fast Moving ({int(daily_velocity)}/day)"
-            else:
-                velocity_text = f"📈 Steady Demand ({qty_7d}/week)"
-
-            if p.stock == 0:
+            # Assign distinct, informative velocity & demand badges
+            if is_out_of_stock:
                 urgency = "HIGH"
+                velocity_text = "🚨 Out of Stock"
                 reason = f"🚨 '{p.name.capitalize()}' is 100% OUT OF STOCK! ({items_30d_qty} sold recently). Immediate restock required ahead of {peak_window}."
             elif is_low_stock:
                 urgency = "HIGH"
-                reason = f"⚠️ Critical inventory level! Only {p.stock} units of '{p.name.capitalize()}' remaining. Fast turnover observed in {peak_window}."
-            elif is_surge:
+                velocity_text = f"⚠️ Low Stock ({p.stock} left)"
+                reason = f"⚠️ Critical inventory level! Only {p.stock} units of '{p.name.capitalize()}' remaining. Peak demand observed during {peak_window}."
+            elif is_true_surge:
                 urgency = "MEDIUM"
-                reason = f"⚡ '{p.name.capitalize()}' ({p.category}) has a seasonal demand surge ({velocity_text}). Increase safety stock by +{reorder_amt} units."
+                pct = int(((qty_7d - qty_prev_7d) / max(qty_prev_7d, 1)) * 100)
+                velocity_text = f"⚡ Sudden Surge (+{pct}%)"
+                reason = f"⚡ '{p.name.capitalize()}' ({p.category}) has a rapid demand surge (+{pct}% vs last week). Increase safety stock by +{reorder_amt} units."
+            elif peak_window != "General Demand" and qty_7d >= 3:
+                urgency = "MEDIUM"
+                velocity_text = f"⏰ {peak_window.split(' ')[0]} Peak ({qty_7d}/wk)"
+                reason = f"⏰ '{p.name.capitalize()}' sells heavily during {peak_window}. Ensure shelves are stocked before this window."
+            elif daily_velocity >= 2.0:
+                urgency = "MEDIUM"
+                velocity_text = f"🔥 Fast Moving ({int(daily_velocity)}/day)"
+                reason = f"🔥 '{p.name.capitalize()}' has high turnover ({int(daily_velocity)} sold per day). Reorder +{reorder_amt} units to prevent stockouts."
             else:
                 urgency = "LOW"
+                velocity_text = f"📈 Steady Demand ({qty_7d}/wk)"
                 reason = f"📦 '{p.name.capitalize()}' ({p.category}) maintains steady demand ({qty_7d} sold this week). Reorder +{reorder_amt} for {peak_window}."
 
             stock_recommendations.append(
