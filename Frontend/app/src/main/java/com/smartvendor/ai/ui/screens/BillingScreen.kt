@@ -87,18 +87,7 @@ fun BillingScreen(
                 )
             )
         },
-        floatingActionButton = {
-            if (!uiState.checkoutSuccess) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.openVoiceDialog() },
-                    containerColor = RedPrimary,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(16.dp),
-                    icon = { Icon(Icons.Default.Mic, contentDescription = "Voice Billing") },
-                    text = { Text("Voice Bill (मराठी/हिंदी)", fontWeight = FontWeight.Bold) }
-                )
-            }
-        }
+        floatingActionButton = {}
     ) { innerPadding ->
         Box(
             modifier = Modifier

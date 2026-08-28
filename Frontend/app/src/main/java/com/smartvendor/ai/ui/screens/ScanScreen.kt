@@ -7,11 +7,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,7 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -44,7 +40,6 @@ import com.smartvendor.ai.ui.components.VoiceBillingSheet
 import com.smartvendor.ai.ui.theme.AccentGreen
 import com.smartvendor.ai.ui.theme.BluePrimary
 import com.smartvendor.ai.ui.theme.RedPrimary
-import com.smartvendor.ai.ui.theme.WarningYellow
 import com.smartvendor.ai.utils.PermissionUtils
 import kotlinx.coroutines.delay
 
@@ -95,7 +90,7 @@ fun ScanScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Smart Scanner & Bill",
+                            text = "Smart POS Scanner",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
@@ -110,77 +105,11 @@ fun ScanScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.openVoiceDialog() }) {
-                        Icon(Icons.Default.Mic, contentDescription = "Voice Billing", tint = RedPrimary)
-                    }
                     IconButton(onClick = { viewModel.openManualEntryDialog() }) {
                         Icon(Icons.Default.Add, contentDescription = "Add Manually", tint = RedPrimary)
                     }
-                    Surface(
-                        color = RedPrimary.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.clickable { onNavigateToBilling(billId) }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.ShoppingCart,
-                                contentDescription = null,
-                                tint = RedPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "${uiState.currentBill?.items?.sumOf { it.quantity } ?: 0} Items",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = RedPrimary
-                                )
-                            )
-                        }
-                    }
                 }
             )
-        },
-        floatingActionButton = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FloatingActionButton(
-                    onClick = { viewModel.openVoiceDialog() },
-                    containerColor = RedPrimary,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Voice Bill")
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Voice Bill", fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                FloatingActionButton(
-                    onClick = { onNavigateToBilling(billId) },
-                    containerColor = AccentGreen,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Review Bill")
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Review Bill", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
         }
     ) { innerPadding ->
         Box(
@@ -205,7 +134,7 @@ fun ScanScreen(
                     BarcodeTargetOverlay()
                 }
 
-                // Top Mode Toggle Row with Auto-Add Switch
+                // Top Mode Toggle Bar
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
                     shape = RoundedCornerShape(16.dp),
@@ -214,7 +143,7 @@ fun ScanScreen(
                         .padding(12.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -233,54 +162,89 @@ fun ScanScreen(
                             onClick = { viewModel.toggleScanMode(useOcr = !uiState.isOcrActive) },
                             label = { Text("Price/OCR") }
                         )
-
-                        VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
-
-                        // Auto-Add Toggle Chip
-                        FilterChip(
-                            selected = uiState.autoAddEnabled,
-                            onClick = { viewModel.toggleAutoAdd() },
-                            label = {
-                                Text(
-                                    text = if (uiState.autoAddEnabled) "⚡ Auto: ON" else "✋ Auto: OFF",
-                                    fontWeight = FontWeight.Bold
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = AccentGreen,
-                                selectedLabelColor = Color.White
-                            )
-                        )
                     }
                 }
 
-                // Auto-Add Toast / Banner with Live Countdown Timer & Undo Button
-                if (uiState.lastAutoAddedProduct != null) {
-                    AutoAddUndoBanner(
-                        product = uiState.lastAutoAddedProduct!!,
-                        timestamp = uiState.lastAutoAddedTimestamp,
-                        onUndo = { viewModel.undoLastAutoAddedProduct() },
+                // Auto-Added Toast Notification with Live Undo
+                if (uiState.lastAddedProduct != null) {
+                    AddedUndoToast(
+                        product = uiState.lastAddedProduct!!,
+                        timestamp = uiState.lastAddedTimestamp,
+                        onUndo = { viewModel.undoLastAddedProduct() },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 88.dp, start = 16.dp, end = 16.dp)
+                            .padding(bottom = 92.dp, start = 16.dp, end = 16.dp)
                     )
                 }
 
-                // Manual Detected Product Card (when Auto-Add is OFF)
-                if (!uiState.autoAddEnabled && uiState.detectedProduct != null) {
-                    Box(
+                // Bottom POS Bill Bar: Items Count, Whole Bill Amount & Review Bill Action
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp,
+                    shadowElevation = 16.dp,
+                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                ) {
+                    Row(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 80.dp, start = 16.dp, end = 16.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DetectedProductCard(
-                            product = uiState.detectedProduct!!,
-                            selectedQuantity = uiState.selectedQuantity,
-                            onIncrease = { viewModel.increaseQuantity() },
-                            onDecrease = { viewModel.decreaseQuantity() },
-                            onAdd = { viewModel.addProductToBill() },
-                            onCancel = { viewModel.cancelDetection() }
-                        )
+                        Column {
+                            val totalCount = uiState.currentBill?.items?.sumOf { it.quantity } ?: 0
+                            val grandTotal = uiState.currentBill?.grandTotal ?: 0.0
+
+                            Text(
+                                text = "$totalCount Items in Bill",
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
+                            )
+                            Text(
+                                text = "₹${"%.2f".format(grandTotal)}",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = RedPrimary
+                                )
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Voice Bill Shortcut in Scanner POS bar
+                            IconButton(
+                                onClick = { viewModel.openVoiceDialog() },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(RedPrimary.copy(alpha = 0.12f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = "Voice Bill",
+                                    tint = RedPrimary
+                                )
+                            }
+
+                            // Review Bill Button
+                            Button(
+                                onClick = { onNavigateToBilling(billId) },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+                                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
+                            ) {
+                                Text("Review Bill", fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 }
             } else {
@@ -291,7 +255,7 @@ fun ScanScreen(
                 }
             }
 
-            // Voice Billing Modal
+            // Voice Billing Modal Sheet
             if (uiState.showVoiceDialog) {
                 VoiceBillingSheet(
                     onDismiss = { viewModel.closeVoiceDialog() },
@@ -317,24 +281,16 @@ fun ScanScreen(
 }
 
 @Composable
-fun AutoAddUndoBanner(
+fun AddedUndoToast(
     product: Product,
     timestamp: Long,
     onUndo: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var progress by remember(timestamp) { mutableFloatStateOf(1f) }
     var isVisible by remember(timestamp) { mutableStateOf(true) }
 
     LaunchedEffect(timestamp) {
-        val durationMs = 3500L
-        val stepMs = 50L
-        val totalSteps = durationMs / stepMs
-
-        for (i in totalSteps downTo 0) {
-            progress = i.toFloat() / totalSteps.toFloat()
-            delay(stepMs)
-        }
+        delay(3500L)
         isVisible = false
     }
 
@@ -345,80 +301,70 @@ fun AutoAddUndoBanner(
         modifier = modifier
     ) {
         Card(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Surface(
+                        color = AccentGreen,
+                        shape = CircleShape,
+                        modifier = Modifier.size(28.dp)
                     ) {
-                        Surface(
-                            color = AccentGreen,
-                            shape = CircleShape,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-
-                        Column {
-                            Text(
-                                text = "Auto-Added +1",
-                                style = MaterialTheme.typography.labelSmall.copy(color = AccentGreen, fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "${product.name} (₹${product.price.toInt()})",
-                                style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
 
-                    Button(
-                        onClick = {
-                            isVisible = false
-                            onUndo()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)),
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Undo,
-                            contentDescription = "Undo",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
+                    Column {
+                        Text(
+                            text = "Added +1",
+                            style = MaterialTheme.typography.labelSmall.copy(color = AccentGreen, fontWeight = FontWeight.Bold)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Undo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(
+                            text = "${product.name} (₹${product.price.toInt()})",
+                            style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 
-                // Smooth countdown timer bar
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().height(3.dp),
-                    color = AccentGreen,
-                    trackColor = Color.White.copy(alpha = 0.1f),
-                )
+                Button(
+                    onClick = {
+                        isVisible = false
+                        onUndo()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Undo,
+                        contentDescription = "Undo",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Undo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
             }
         }
     }
@@ -439,107 +385,6 @@ fun BarcodeTargetOverlay() {
             cornerRadius = CornerRadius(16f, 16f),
             style = Stroke(width = 3.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 10f), 0f))
         )
-    }
-}
-
-@Composable
-fun DetectedProductCard(
-    product: Product,
-    selectedQuantity: Int,
-    onIncrease: () -> Unit,
-    onDecrease: () -> Unit,
-    onAdd: () -> Unit,
-    onCancel: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = product.name,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "Category: ${product.category}",
-                        style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
-                    )
-                }
-
-                Text(
-                    text = "₹${product.price.toInt()}",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = RedPrimary
-                    )
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    IconButton(
-                        onClick = onDecrease,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                    ) {
-                        Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
-                    }
-
-                    Text(
-                        text = "$selectedQuantity",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-
-                    IconButton(
-                        onClick = onIncrease,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onCancel) {
-                        Text("Ignore (8s)", color = Color.Gray)
-                    }
-
-                    Button(
-                        onClick = onAdd,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add to Bill")
-                    }
-                }
-            }
-        }
     }
 }
 
