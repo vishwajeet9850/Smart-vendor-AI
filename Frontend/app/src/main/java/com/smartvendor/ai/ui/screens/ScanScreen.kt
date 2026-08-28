@@ -165,7 +165,7 @@ fun ScanScreen(
                     }
                 }
 
-                // Auto-Added Multi-Product Toast Notification with Live Undo
+                // Auto-Added Multi-Product Toast Notification with Live Undo (for YOLO auto-add)
                 if (uiState.lastAddedProducts.isNotEmpty()) {
                     MultiAddedUndoToast(
                         products = uiState.lastAddedProducts,
@@ -175,6 +175,24 @@ fun ScanScreen(
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 92.dp, start = 16.dp, end = 16.dp)
                     )
+                }
+
+                // Detected Product Card for OCR Manual Confirmation (Does NOT auto-add)
+                if (uiState.detectedProduct != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 92.dp, start = 16.dp, end = 16.dp)
+                    ) {
+                        OcrDetectedProductCard(
+                            product = uiState.detectedProduct!!,
+                            quantity = uiState.selectedQuantity,
+                            onIncrease = { viewModel.increaseQuantity() },
+                            onDecrease = { viewModel.decreaseQuantity() },
+                            onAdd = { viewModel.addDetectedProductToBill() },
+                            onCancel = { viewModel.cancelDetectedProduct() }
+                        )
+                    }
                 }
 
                 // Bottom POS Bill Bar: Items Count, Whole Bill Amount & Review Bill Action
@@ -215,7 +233,6 @@ fun ScanScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Voice Bill Shortcut in Scanner POS bar
                             IconButton(
                                 onClick = { viewModel.openVoiceDialog() },
                                 modifier = Modifier
@@ -229,7 +246,6 @@ fun ScanScreen(
                                 )
                             }
 
-                            // Review Bill Button
                             Button(
                                 onClick = { onNavigateToBilling(billId) },
                                 shape = RoundedCornerShape(14.dp),
@@ -255,7 +271,6 @@ fun ScanScreen(
                 }
             }
 
-            // Voice Billing Modal Sheet
             if (uiState.showVoiceDialog) {
                 VoiceBillingSheet(
                     onDismiss = { viewModel.closeVoiceDialog() },
@@ -265,7 +280,6 @@ fun ScanScreen(
                 )
             }
 
-            // Manual Product Entry Dialog
             if (uiState.showManualEntryDialog) {
                 ManualEntryDialog(
                     prefilledName = uiState.ocrPrefilledName,
@@ -275,6 +289,90 @@ fun ScanScreen(
                         viewModel.addManualProductToBill(name, price, quantity)
                     }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun OcrDetectedProductCard(
+    product: Product,
+    quantity: Int,
+    onIncrease: () -> Unit,
+    onDecrease: () -> Unit,
+    onAdd: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "OCR Detected Product",
+                        style = MaterialTheme.typography.labelSmall.copy(color = BluePrimary, fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = product.name,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Text(
+                    text = "₹${product.price.toInt()}",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = RedPrimary)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    IconButton(
+                        onClick = onDecrease,
+                        modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                    ) {
+                        Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(14.dp))
+                    }
+                    Text(text = "$quantity", fontWeight = FontWeight.Bold)
+                    IconButton(
+                        onClick = onIncrease,
+                        modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onCancel) {
+                        Text("Cancel", color = Color.Gray)
+                    }
+                    Button(
+                        onClick = onAdd,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
+                    ) {
+                        Text("Add to Bill")
+                    }
+                }
             }
         }
     }

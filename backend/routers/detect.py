@@ -24,18 +24,33 @@ _yolo_model = None
 MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024  # 15 MB limit
 
 
+def preload_and_warmup_model():
+    """
+    Loads YOLO weights and executes a dummy forward pass during server boot.
+    Eliminates first-frame inference lag for mobile clients.
+    """
+    global _yolo_model
+    try:
+        from ultralytics import YOLO
+        logger.info(f"Preloading YOLO model from {MODEL_PATH}")
+        _yolo_model = YOLO(str(MODEL_PATH))
+        # Warmup with dummy image
+        dummy_img = Image.new("RGB", (320, 320), color=(128, 128, 128))
+        _yolo_model.predict(source=dummy_img, conf=0.5, verbose=False)
+        logger.info(f"YOLO model preloaded & warmed up successfully. Classes: {len(_yolo_model.names)}")
+    except Exception as e:
+        logger.error(f"Failed to preload YOLO model: {e}")
+
+
 def _get_model():
     global _yolo_model
     if _yolo_model is None:
-        try:
-            from ultralytics import YOLO
-            logger.info(f"Loading YOLO model from {MODEL_PATH}")
-            _yolo_model = YOLO(str(MODEL_PATH))
-            logger.info(f"YOLO model loaded. Classes: {_yolo_model.names}")
-        except Exception as e:
-            logger.error(f"Failed to load YOLO model: {e}")
-            raise RuntimeError(f"YOLO model could not be loaded: {e}")
+        preload_and_warmup_model()
     return _yolo_model
+
+
+# Auto-warmup on module import
+preload_and_warmup_model()
 
 
 from pydantic import BaseModel
@@ -160,7 +175,6 @@ async def detect_from_upload(
     try:
         img = Image.open(io.BytesIO(contents))
         img.verify()
-        # Re-open after verify()
         img = Image.open(io.BytesIO(contents))
         return _run_inference(img, conf_threshold=conf)
     except RuntimeError as e:

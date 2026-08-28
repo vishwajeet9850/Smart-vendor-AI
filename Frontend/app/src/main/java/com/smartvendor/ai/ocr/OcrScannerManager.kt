@@ -24,7 +24,7 @@ class OcrScannerManager {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val TAG = "OcrScannerManager"
 
-    // Ignore tiny fine-print words (ingredients, manufacturing, customer care, FSSAI)
+    // Ignore tiny fine-print words & ambient packaging noise
     private val finePrintNoise = setOf(
         "net", "wt", "mfg", "exp", "batch", "pack", "ingredients", "made", "india",
         "mrp", "incl", "taxes", "tax", "customer", "care", "lic", "iso", "store",
@@ -39,7 +39,8 @@ class OcrScannerManager {
         "helpline", "toll", "free", "email", "website", "www", "com", "in",
         "super", "saver", "offer", "inside", "new", "improved", "taste", "delicious",
         "preservative", "acidity", "regulator", "emulsifier", "stabilizer", "flavour",
-        "warning", "caution", "safety", "seal", "contain", "contains", "added", "synthetic"
+        "warning", "caution", "safety", "seal", "contain", "contains", "added", "synthetic",
+        "code", "barcode", "label", "price", "only", "amount", "total", "rupees", "rs"
     )
 
     private val priceRegex = Regex(
@@ -47,10 +48,10 @@ class OcrScannerManager {
         RegexOption.IGNORE_CASE
     )
 
-    private val standalonePriceRegex = Regex("""\b(\d{1,4}(?:\.\d{1,2})?)\b""")
+    private val standalonePriceRegex = Regex("""(\d{1,4}(?:\.\d{1,2})?)""")
 
     private val quantityUnitRegex = Regex(
-        """\b(\d+(?:\.\d+)?\s*(?:kg|g|gm|l|ml|ltr|litre|pack|pc|pcs|pouch|sachet))\b""",
+        """(\d+(?:\.\d+)?\s*(?:kg|g|gm|l|ml|ltr|litre|pack|pc|pcs|pouch|sachet))""",
         RegexOption.IGNORE_CASE
     )
 
@@ -110,23 +111,21 @@ class OcrScannerManager {
                     }
                 }
 
-                // 2. Strict Font-Size Filter: Ignore fine-print and isolate dominant brand title
+                // 2. Strict Font-Size Filter: Line must be at least 50% of the largest font on packet
                 val lineHeights = allLines.map { (it.boundingBox?.height() ?: 0) }
                 val maxFontHeight = lineHeights.maxOrNull() ?: 0
-
-                // Line must be at least 38% of the largest font on the packet
-                val dominantHeightThreshold = (maxFontHeight * 0.38f).coerceAtLeast(20f)
+                val dominantHeightThreshold = (maxFontHeight * 0.50f).coerceAtLeast(24f)
 
                 val mainTitleLines = allLines.filter { line ->
                     val h = line.boundingBox?.height() ?: 0
                     val text = line.text.trim()
-                    h >= dominantHeightThreshold && text.length in 2..40 && !priceRegex.containsMatchIn(text)
+                    h >= dominantHeightThreshold && text.length in 3..40 && !priceRegex.containsMatchIn(text)
                 }
 
                 val dominantText = mainTitleLines.joinToString(" ") { it.text }
                 val brandWords = dominantText.lowercase(Locale.getDefault())
-                    .split(Regex("""[\s\-_,.:;/\\]+"""))
-                    .filter { it.length >= 3 && it !in finePrintNoise }
+                    .split(Regex("""[\s\-_,.:;/\]+"""))
+                    .filter { it.length >= 4 && it !in finePrintNoise && it.all { c -> c.isLetter() } }
 
                 val topTitle = mainTitleLines.maxByOrNull { (it.boundingBox?.width() ?: 0) * (it.boundingBox?.height() ?: 0) }?.text ?: ""
 
@@ -152,12 +151,12 @@ class OcrScannerManager {
     }
 
     /**
-     * Matches dominant brand keywords against active Store Inventory
+     * Matches dominant brand keywords strictly against active Store Inventory
      */
     fun findRankedInventoryMatches(
         ocrResult: OcrResult,
         inventoryProducts: List<Product>,
-        threshold: Float = 0.50f
+        threshold: Float = 0.70f
     ): List<Product> {
         if (inventoryProducts.isEmpty() || ocrResult.dominantBrandKeywords.isEmpty()) return emptyList()
 
@@ -168,27 +167,14 @@ class OcrScannerManager {
 
         for (product in inventoryProducts) {
             val pNameLower = product.name.lowercase(Locale.getDefault())
-            val pTokens = pNameLower.split(Regex("""[\s\-_,.:;/\\]+""")).filter { it.length >= 3 && it !in finePrintNoise }
+            val pTokens = pNameLower.split(Regex("""[\s\-_,.:;/\]+""")).filter { it.length >= 4 && it !in finePrintNoise }
 
             if (pTokens.isEmpty()) continue
 
-            // 1. Direct Brand Substring Match (e.g. "Maggi" in "Maggi 2-Minute Noodles")
-            if (pTokens.size >= 2 && fullTextLower.contains(pNameLower)) {
-                scoredMatches.add(Pair(product, 1.0f))
-                continue
-            }
+            // Direct exact token matching
+            val intersection = pTokens.filter { token -> brandTokens.any { it.contains(token) || token.contains(it) } }
+            val score = intersection.size.toFloat() / pTokens.size.toFloat()
 
-            // 2. Dominant Brand Token Overlap
-            var matchCount = 0
-            for (pTok in pTokens) {
-                if (brandTokens.contains(pTok) || fullTextLower.contains(pTok)) {
-                    matchCount++
-                } else if (pTok.length >= 4 && brandTokens.any { charSimilarity(it, pTok) >= 0.82f }) {
-                    matchCount++
-                }
-            }
-
-            val score = matchCount.toFloat() / pTokens.size.toFloat()
             if (score >= threshold) {
                 scoredMatches.add(Pair(product, score))
             }
@@ -198,72 +184,32 @@ class OcrScannerManager {
     }
 
     /**
-     * Matches dominant brand keywords against 6k Reference Catalog
+     * Matches dominant brand keywords strictly against Master Catalog
      */
     fun findRankedCatalogMatches(
         ocrResult: OcrResult,
         catalogItems: List<MasterCatalogResponse>,
-        threshold: Float = 0.60f
+        threshold: Float = 0.70f
     ): List<MasterCatalogResponse> {
         if (catalogItems.isEmpty() || ocrResult.dominantBrandKeywords.isEmpty()) return emptyList()
 
-        val fullTextLower = ocrResult.fullScannedText.lowercase(Locale.getDefault())
         val brandTokens = ocrResult.dominantBrandKeywords.toSet()
-
         val scoredMatches = mutableListOf<Pair<MasterCatalogResponse, Float>>()
 
         for (item in catalogItems) {
-            val cNameLower = item.name.lowercase(Locale.getDefault())
-            val cTokens = cNameLower.split(Regex("""[\s\-_,.:;/\\]+""")).filter { it.length >= 3 && it !in finePrintNoise }
+            val nameLower = item.name.lowercase(Locale.getDefault())
+            val cTokens = nameLower.split(Regex("""[\s\-_,.:;/\]+""")).filter { it.length >= 4 && it !in finePrintNoise }
 
             if (cTokens.isEmpty()) continue
 
-            if (fullTextLower.contains(cNameLower)) {
-                scoredMatches.add(Pair(item, 1.0f))
-                continue
-            }
+            val intersection = cTokens.filter { token -> brandTokens.any { it.contains(token) || token.contains(it) } }
+            val score = intersection.size.toFloat() / cTokens.size.toFloat()
 
-            var matchCount = 0
-            for (cTok in cTokens) {
-                if (brandTokens.contains(cTok) || fullTextLower.contains(cTok)) {
-                    matchCount++
-                }
-            }
-
-            val score = matchCount.toFloat() / cTokens.size.toFloat()
             if (score >= threshold) {
                 scoredMatches.add(Pair(item, score))
             }
         }
 
         return scoredMatches.sortedByDescending { it.second }.map { it.first }
-    }
-
-    fun charSimilarity(s1: String, s2: String): Float {
-        val maxLen = maxOf(s1.length, s2.length)
-        if (maxLen == 0) return 1.0f
-        val dist = levenshteinDistance(s1.lowercase(Locale.getDefault()), s2.lowercase(Locale.getDefault()))
-        return 1.0f - (dist.toFloat() / maxLen.toFloat())
-    }
-
-    private fun levenshteinDistance(s1: String, s2: String): Int {
-        val len1 = s1.length
-        val len2 = s2.length
-        val dp = Array(len1 + 1) { IntArray(len2 + 1) }
-
-        for (i in 0..len1) dp[i][0] = i
-        for (j in 0..len2) dp[0][j] = j
-
-        for (i in 1..len1) {
-            for (j in 1..len2) {
-                val cost = if (s1[i - 1].equals(s2[j - 1], ignoreCase = true)) 0 else 1
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,
-                    dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + cost
-                )
-            }
-        }
-        return dp[len1][len2]
     }
 }

@@ -31,6 +31,8 @@ data class ScanUiState(
     val isBarcodeActive: Boolean = false,
     val isOcrActive: Boolean = false,
     val activeDetections: List<DetectionResult> = emptyList(),
+    val detectedProduct: Product? = null,
+    val selectedQuantity: Int = 1,
     val currentBill: Bill? = null,
     val showManualEntryDialog: Boolean = false,
     val showVoiceDialog: Boolean = false,
@@ -54,14 +56,13 @@ class ScanViewModel(
     private val barcodeScanner = BarcodeScannerManager()
     private val ocrScanner = OcrScannerManager()
 
-    // 3.5s cooldown per product to avoid double additions of the same item
+    // 3.5s cooldown per product for YOLO auto-add
     private val addedCooldownMs = 3500L
     private val ignoredCooldownMs = 8000L
 
     private val recentlyAddedTimestampMap = ConcurrentHashMap<String, Long>()
     private val ignoredTimestampMap = ConcurrentHashMap<String, Long>()
 
-    // Confidence threshold for YOLO detection accuracy (0.50 = 50% confidence)
     val confidenceThreshold = 0.50f
 
     private val labelToProductMap = mapOf(
@@ -78,7 +79,7 @@ class ScanViewModel(
 
     fun initialize(context: Context, billId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(aiStatus = "Multi-Object AI Scanner Ready") }
+            _uiState.update { it.copy(aiStatus = "Smart AI Scanner Ready") }
             loadBill(billId)
             observeInventory()
         }
@@ -180,7 +181,8 @@ class ScanViewModel(
                 isOcrActive = useOcr,
                 isBarcodeActive = false,
                 activeDetections = emptyList(),
-                aiStatus = if (useOcr) "Price & Label Reader Active" else "Smart AI Scanner Ready"
+                detectedProduct = null,
+                aiStatus = if (useOcr) "Price/OCR Scanner Active (Manual Confirm)" else "Smart AI Scanner Ready"
             )
         }
     }
@@ -191,6 +193,7 @@ class ScanViewModel(
                 isBarcodeActive = useBarcode,
                 isOcrActive = false,
                 activeDetections = emptyList(),
+                detectedProduct = null,
                 aiStatus = if (useBarcode) "Barcode Scanner Active" else "Smart AI Scanner Ready"
             )
         }
@@ -209,7 +212,7 @@ class ScanViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isProcessingFrame = true) }
 
-            // 1. OCR Label & Price Reader Mode
+            // 1. OCR Label & Price Reader Mode (NO AUTO-ADD -> Prompts vendor)
             if (_uiState.value.isOcrActive) {
                 ocrScanner.processImage(
                     imageProxy = imageProxy,
@@ -231,7 +234,7 @@ class ScanViewModel(
                 return@launch
             }
 
-            // 3. Smart Hybrid Mode: Runs YOLOv11 Multi-Object Detections directly into bill
+            // 3. Smart AI Mode: ONLY YOLOv11 AUTO-ADDS DIRECTLY TO BILL
             val yoloResponse = yoloDetector.detectFromImageProxy(imageProxy, confThreshold = confidenceThreshold)
             if (yoloResponse != null && yoloResponse.detections.isNotEmpty()) {
                 handleYoloDetected(yoloResponse)
@@ -250,7 +253,6 @@ class ScanViewModel(
                     return@launch
                 }
 
-                // Green bounding box overlays for all detected products in scene
                 val overlayDetections = detections.map { det ->
                     val bbox = det.bbox
                     val rect = if (bbox.size == 4) {
@@ -270,7 +272,6 @@ class ScanViewModel(
                 val storeProducts = _uiState.value.inventoryProducts
                 val newProductsToAdd = mutableListOf<Product>()
 
-                // Iterate through ALL detected products in the frame
                 for (det in detections) {
                     val labelClean = det.label.lowercase().trim()
                     val matchedProduct = findProductForLabel(labelClean, storeProducts) ?: continue
@@ -281,9 +282,7 @@ class ScanViewModel(
                     val lastAddedTime = maxOf(recentlyAddedTimestampMap[pId] ?: 0L, recentlyAddedTimestampMap[pNameLower] ?: 0L)
                     val lastIgnoredTime = maxOf(ignoredTimestampMap[pId] ?: 0L, ignoredTimestampMap[pNameLower] ?: 0L)
 
-                    // If NOT on cooldown and NOT ignored, add to this frame's batch
                     if (now - lastIgnoredTime >= ignoredCooldownMs && now - lastAddedTime >= addedCooldownMs) {
-                        // Prevent duplicate in same frame iteration
                         if (newProductsToAdd.none { it.id == matchedProduct.id }) {
                             newProductsToAdd.add(matchedProduct)
                         }
@@ -312,7 +311,6 @@ class ScanViewModel(
         val items = currentBillState.items.toMutableList()
 
         for (prod in products) {
-            // Set cooldown timestamp per distinct product
             recentlyAddedTimestampMap[prod.id] = now
             recentlyAddedTimestampMap[prod.name.lowercase()] = now
 
@@ -425,66 +423,127 @@ class ScanViewModel(
         }
     }
 
+    /**
+     * OCR Mode: Strictly displays detected candidate or prefilled dialog - DOES NOT AUTO-ADD
+     */
     private fun handleOcrDetected(ocrResult: OcrResult) {
         viewModelScope.launch {
             try {
                 val products = _uiState.value.inventoryProducts
-                val now = System.currentTimeMillis()
 
                 val rankedInventoryMatches = ocrScanner.findRankedInventoryMatches(
                     ocrResult = ocrResult,
                     inventoryProducts = products,
-                    threshold = 0.35f
+                    threshold = 0.70f
                 )
 
-                for (storeMatch in rankedInventoryMatches) {
-                    val lastAdded = maxOf(recentlyAddedTimestampMap[storeMatch.id] ?: 0L, recentlyAddedTimestampMap[storeMatch.name.lowercase()] ?: 0L)
-                    val lastIgnored = maxOf(ignoredTimestampMap[storeMatch.id] ?: 0L, ignoredTimestampMap[storeMatch.name.lowercase()] ?: 0L)
-
-                    if (now - lastIgnored < ignoredCooldownMs || now - lastAdded < addedCooldownMs) {
-                        continue
+                if (rankedInventoryMatches.isNotEmpty()) {
+                    val storeMatch = rankedInventoryMatches.first()
+                    _uiState.update {
+                        it.copy(
+                            detectedProduct = storeMatch,
+                            selectedQuantity = 1,
+                            aiStatus = "OCR Match: ${storeMatch.name} (Tap Add)",
+                            isProcessingFrame = false
+                        )
                     }
-
-                    addMultipleDirectlyToBill(listOf(storeMatch), emptyList())
                     return@launch
                 }
 
-                val keywords: List<String> = ocrResult.dominantBrandKeywords.filter { it.length >= 3 }
-                for (kw in keywords.take(3)) {
-                    val catResults = productRepository.searchMasterCatalog(kw).getOrDefault(emptyList())
-                    val rankedCatalogMatches = ocrScanner.findRankedCatalogMatches(
-                        ocrResult = ocrResult,
-                        catalogItems = catResults,
-                        threshold = 0.45f
-                    )
+                // If no exact inventory match, check if price or prominent brand detected
+                val prefillTitle = ocrResult.topBrandTitle.ifBlank { ocrResult.dominantBrandKeywords.joinToString(" ") }
+                val prefillPrice = ocrResult.detectedPrice?.let { "%.2f".format(it) } ?: ""
 
-                    for (catItem in rankedCatalogMatches) {
-                        val targetProduct = Product(
-                            id = catItem.id,
-                            name = catItem.name,
-                            price = catItem.suggestedPrice,
-                            stock = 30,
-                            category = catItem.category,
-                            barcode = catItem.barcode ?: ""
+                if (prefillTitle.isNotBlank() || prefillPrice.isNotBlank()) {
+                    _uiState.update {
+                        it.copy(
+                            ocrPrefilledName = prefillTitle,
+                            ocrPrefilledPrice = prefillPrice,
+                            showManualEntryDialog = true,
+                            aiStatus = "OCR Label Captured",
+                            isProcessingFrame = false
                         )
-
-                        val lastAdded = maxOf(recentlyAddedTimestampMap[targetProduct.id] ?: 0L, recentlyAddedTimestampMap[targetProduct.name.lowercase()] ?: 0L)
-                        val lastIgnored = maxOf(ignoredTimestampMap[targetProduct.id] ?: 0L, ignoredTimestampMap[targetProduct.name.lowercase()] ?: 0L)
-
-                        if (now - lastIgnored < ignoredCooldownMs || now - lastAdded < addedCooldownMs) {
-                            continue
-                        }
-
-                        addMultipleDirectlyToBill(listOf(targetProduct), emptyList())
-                        return@launch
                     }
+                } else {
+                    _uiState.update { it.copy(isProcessingFrame = false) }
                 }
-
-                _uiState.update { it.copy(isProcessingFrame = false) }
             } catch (_: Exception) {
                 _uiState.update { it.copy(isProcessingFrame = false) }
             }
         }
+    }
+
+    fun addDetectedProductToBill() {
+        val prod = _uiState.value.detectedProduct ?: return
+        val qty = _uiState.value.selectedQuantity
+        val now = System.currentTimeMillis()
+        recentlyAddedTimestampMap[prod.id] = now
+        recentlyAddedTimestampMap[prod.name.lowercase()] = now
+
+        val currentBillState = _uiState.value.currentBill ?: Bill(billId = "BILL_${System.currentTimeMillis()}")
+        val items = currentBillState.items.toMutableList()
+        val index = items.indexOfFirst { it.productId == prod.id || it.name.equals(prod.name, ignoreCase = true) }
+
+        if (index >= 0) {
+            val old = items[index]
+            val newQty = old.quantity + qty
+            items[index] = old.copy(quantity = newQty, lineTotal = newQty * old.unitPrice)
+        } else {
+            items.add(
+                BillItem(
+                    productId = prod.id,
+                    name = prod.name,
+                    quantity = qty,
+                    unitPrice = prod.price
+                )
+            )
+        }
+
+        val newSubtotal = items.sumOf { it.quantity * it.unitPrice }
+        val newGrandTotal = newSubtotal + (newSubtotal * 0.05) - currentBillState.discount
+
+        val updated = currentBillState.copy(
+            items = items,
+            subtotal = newSubtotal,
+            gst = newSubtotal * 0.05,
+            grandTotal = newGrandTotal
+        )
+
+        viewModelScope.launch {
+            salesRepository.saveBill(updated)
+            _uiState.update {
+                it.copy(
+                    currentBill = updated,
+                    detectedProduct = null,
+                    lastAddedProducts = listOf(prod),
+                    lastAddedTimestamp = now,
+                    aiStatus = "Added +$qty ${prod.name}"
+                )
+            }
+        }
+    }
+
+    fun cancelDetectedProduct() {
+        val prod = _uiState.value.detectedProduct
+        val now = System.currentTimeMillis()
+        if (prod != null) {
+            ignoredTimestampMap[prod.id] = now
+            ignoredTimestampMap[prod.name.lowercase()] = now
+        }
+        _uiState.update {
+            it.copy(
+                detectedProduct = null,
+                aiStatus = "Cancelled: ${prod?.name ?: "Item"}"
+            )
+        }
+    }
+
+    fun increaseQuantity() {
+        _uiState.update { it.copy(selectedQuantity = it.selectedQuantity + 1) }
+    }
+
+    fun decreaseQuantity() {
+        _uiState.update { it.copy(selectedQuantity = (it.selectedQuantity - 1).coerceAtLeast(1)) }
     }
 
     fun undoLastAddedBatch() {
