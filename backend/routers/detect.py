@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Depends
-from fastapi.responses import JSONResponse
 from PIL import Image
 import numpy as np
 from auth import CurrentUser
@@ -26,18 +25,18 @@ MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024  # 15 MB limit
 
 def preload_and_warmup_model():
     """
-    Loads YOLO weights and executes a dummy forward pass during server boot.
-    Eliminates first-frame inference lag for mobile clients.
+    Loads YOLO weights and executes a 480x480 dummy forward pass during server boot.
+    Eliminates first-frame inference lag completely.
     """
     global _yolo_model
     try:
         from ultralytics import YOLO
-        logger.info(f"Preloading YOLO model from {MODEL_PATH}")
+        logger.info(f"Loading YOLO model from {MODEL_PATH}")
         _yolo_model = YOLO(str(MODEL_PATH))
-        # Warmup with dummy image
-        dummy_img = Image.new("RGB", (320, 320), color=(128, 128, 128))
-        _yolo_model.predict(source=dummy_img, conf=0.5, verbose=False)
-        logger.info(f"YOLO model preloaded & warmed up successfully. Classes: {len(_yolo_model.names)}")
+        # Warm up PyTorch computation graph and tensor caches
+        dummy_img = Image.new("RGB", (480, 480), color=(128, 128, 128))
+        _yolo_model.predict(source=dummy_img, imgsz=480, conf=0.5, verbose=False)
+        logger.info(f"YOLO model ready and fully warmed up. Classes ({len(_yolo_model.names)}): {_yolo_model.names}")
     except Exception as e:
         logger.error(f"Failed to preload YOLO model: {e}")
 
@@ -49,7 +48,7 @@ def _get_model():
     return _yolo_model
 
 
-# Auto-warmup on module import
+# Warm up immediately on module load
 preload_and_warmup_model()
 
 
@@ -123,6 +122,7 @@ def _run_inference(img: Image.Image, conf_threshold: float = 0.50) -> DetectResp
 
     results = model.predict(
         source=rgb_img,
+        imgsz=480,
         conf=conf_threshold,
         iou=0.45,
         agnostic_nms=True,
@@ -174,8 +174,6 @@ async def detect_from_upload(
 
     try:
         img = Image.open(io.BytesIO(contents))
-        img.verify()
-        img = Image.open(io.BytesIO(contents))
         return _run_inference(img, conf_threshold=conf)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -202,8 +200,6 @@ async def detect_from_base64(
         if len(img_bytes) > MAX_IMAGE_SIZE_BYTES:
             raise HTTPException(status_code=413, detail="Payload exceeds maximum allowable size (15MB)")
 
-        img = Image.open(io.BytesIO(img_bytes))
-        img.verify()
         img = Image.open(io.BytesIO(img_bytes))
         return _run_inference(img, conf_threshold=conf)
     except RuntimeError as e:

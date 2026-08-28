@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class ScanUiState(
     val aiStatus: String = "Smart AI Scanner Ready",
@@ -56,12 +57,16 @@ class ScanViewModel(
     private val barcodeScanner = BarcodeScannerManager()
     private val ocrScanner = OcrScannerManager()
 
-    // 3.5s cooldown per product for YOLO auto-add
-    private val addedCooldownMs = 3500L
+    // Strict 4.5s anti-spam cooldown per product
+    private val addedCooldownMs = 4500L
     private val ignoredCooldownMs = 8000L
 
     private val recentlyAddedTimestampMap = ConcurrentHashMap<String, Long>()
     private val ignoredTimestampMap = ConcurrentHashMap<String, Long>()
+
+    // In-Flight lock to prevent parallel network requests from adding the same product twice
+    private val isYoloInFlight = AtomicBoolean(false)
+    private val isOcrInFlight = AtomicBoolean(false)
 
     val confidenceThreshold = 0.50f
 
@@ -183,7 +188,7 @@ class ScanViewModel(
                 activeDetections = emptyList(),
                 detectedProduct = null,
                 isProcessingFrame = false,
-                aiStatus = if (useOcr) "Price/OCR Mode (Point at text/price)" else "Smart AI Scanner Ready"
+                aiStatus = if (useOcr) "Price/OCR Scanner Active" else "Smart AI Scanner Ready"
             )
         }
     }
@@ -207,13 +212,57 @@ class ScanViewModel(
     fun processFrame(imageProxy: ImageProxy) {
         val now = System.currentTimeMillis()
 
-        // If a candidate product card is already waiting for vendor confirmation, don't overwhelm with new frames
+        // If candidate card is on screen, wait for vendor action
         if (_uiState.value.detectedProduct != null) {
             imageProxy.close()
             return
         }
 
-        if (_uiState.value.isProcessingFrame || (now - lastFrameProcessTime < 180L)) {
+        // 1. OCR Mode (Throttled, single-flight lock)
+        if (_uiState.value.isOcrActive) {
+            if (now - lastOcrProcessTime < 350L || !isOcrInFlight.compareAndSet(false, true)) {
+                imageProxy.close()
+                return
+            }
+            lastOcrProcessTime = now
+
+            ocrScanner.processImage(
+                imageProxy = imageProxy,
+                onSuccess = { ocrResult ->
+                    isOcrInFlight.set(false)
+                    handleOcrDetected(ocrResult)
+                },
+                onNotFound = {
+                    isOcrInFlight.set(false)
+                    _uiState.update { it.copy(isProcessingFrame = false) }
+                },
+                onError = {
+                    isOcrInFlight.set(false)
+                    _uiState.update { it.copy(isProcessingFrame = false) }
+                }
+            )
+            return
+        }
+
+        // 2. Barcode Mode
+        if (_uiState.value.isBarcodeActive) {
+            if (now - lastFrameProcessTime < 250L) {
+                imageProxy.close()
+                return
+            }
+            lastFrameProcessTime = now
+
+            barcodeScanner.scanImage(
+                imageProxy = imageProxy,
+                onSuccess = { barcode -> handleBarcodeDetected(barcode) },
+                onNotFound = { _uiState.update { it.copy(isProcessingFrame = false) } },
+                onError = { _uiState.update { it.copy(isProcessingFrame = false) } }
+            )
+            return
+        }
+
+        // 3. Smart AI YOLO Mode (Strict single-flight lock to eliminate double additions)
+        if (now - lastFrameProcessTime < 150L || !isYoloInFlight.compareAndSet(false, true)) {
             imageProxy.close()
             return
         }
@@ -221,42 +270,17 @@ class ScanViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isProcessingFrame = true) }
-
-            // 1. OCR Label & Price Reader Mode (Throttled to 400ms, NO AUTO-ADD)
-            if (_uiState.value.isOcrActive) {
-                if (now - lastOcrProcessTime < 400L) {
-                    imageProxy.close()
-                    _uiState.update { it.copy(isProcessingFrame = false) }
-                    return@launch
+            try {
+                val yoloResponse = yoloDetector.detectFromImageProxy(imageProxy, confThreshold = confidenceThreshold)
+                if (yoloResponse != null && yoloResponse.detections.isNotEmpty()) {
+                    handleYoloDetected(yoloResponse)
+                } else {
+                    _uiState.update { it.copy(isProcessingFrame = false, activeDetections = emptyList()) }
                 }
-                lastOcrProcessTime = now
-
-                ocrScanner.processImage(
-                    imageProxy = imageProxy,
-                    onSuccess = { ocrResult -> handleOcrDetected(ocrResult) },
-                    onNotFound = { _uiState.update { it.copy(isProcessingFrame = false) } },
-                    onError = { _uiState.update { it.copy(isProcessingFrame = false) } }
-                )
-                return@launch
-            }
-
-            // 2. Barcode Mode
-            if (_uiState.value.isBarcodeActive) {
-                barcodeScanner.scanImage(
-                    imageProxy = imageProxy,
-                    onSuccess = { barcode -> handleBarcodeDetected(barcode) },
-                    onNotFound = { _uiState.update { it.copy(isProcessingFrame = false) } },
-                    onError = { _uiState.update { it.copy(isProcessingFrame = false) } }
-                )
-                return@launch
-            }
-
-            // 3. Smart AI Mode: ONLY YOLO AUTO-ADDS DIRECTLY TO BILL
-            val yoloResponse = yoloDetector.detectFromImageProxy(imageProxy, confThreshold = confidenceThreshold)
-            if (yoloResponse != null && yoloResponse.detections.isNotEmpty()) {
-                handleYoloDetected(yoloResponse)
-            } else {
-                _uiState.update { it.copy(isProcessingFrame = false, activeDetections = emptyList()) }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isProcessingFrame = false) }
+            } finally {
+                isYoloInFlight.set(false)
             }
         }
     }
@@ -296,12 +320,25 @@ class ScanViewModel(
                     val pId = matchedProduct.id
                     val pNameLower = matchedProduct.name.lowercase()
 
-                    val lastAddedTime = maxOf(recentlyAddedTimestampMap[pId] ?: 0L, recentlyAddedTimestampMap[pNameLower] ?: 0L)
-                    val lastIgnoredTime = maxOf(ignoredTimestampMap[pId] ?: 0L, ignoredTimestampMap[pNameLower] ?: 0L)
+                    val lastAddedTime = maxOf(
+                        recentlyAddedTimestampMap[pId] ?: 0L,
+                        recentlyAddedTimestampMap[pNameLower] ?: 0L,
+                        recentlyAddedTimestampMap[labelClean] ?: 0L
+                    )
+                    val lastIgnoredTime = maxOf(
+                        ignoredTimestampMap[pId] ?: 0L,
+                        ignoredTimestampMap[pNameLower] ?: 0L,
+                        ignoredTimestampMap[labelClean] ?: 0L
+                    )
 
+                    // 4.5s anti-spam cooldown check
                     if (now - lastIgnoredTime >= ignoredCooldownMs && now - lastAddedTime >= addedCooldownMs) {
                         if (newProductsToAdd.none { it.id == matchedProduct.id }) {
                             newProductsToAdd.add(matchedProduct)
+                            // Lock timestamp immediately in memory
+                            recentlyAddedTimestampMap[pId] = now
+                            recentlyAddedTimestampMap[pNameLower] = now
+                            recentlyAddedTimestampMap[labelClean] = now
                         }
                     }
                 }
@@ -328,9 +365,6 @@ class ScanViewModel(
         val items = currentBillState.items.toMutableList()
 
         for (prod in products) {
-            recentlyAddedTimestampMap[prod.id] = now
-            recentlyAddedTimestampMap[prod.name.lowercase()] = now
-
             val index = items.indexOfFirst { it.productId == prod.id || it.name.equals(prod.name, ignoreCase = true) }
             if (index >= 0) {
                 val old = items[index]
@@ -441,41 +475,41 @@ class ScanViewModel(
     }
 
     /**
-     * OCR Mode: Displays detected candidate confirmation card or updates status. NEVER automatically loops dialogs.
+     * OCR Mode: Matches recognized product or price from live text. DOES NOT AUTO-ADD.
      */
     private fun handleOcrDetected(ocrResult: OcrResult) {
         viewModelScope.launch {
             try {
                 val products = _uiState.value.inventoryProducts
 
-                val rankedInventoryMatches = ocrScanner.findRankedInventoryMatches(
+                val rankedMatches = ocrScanner.findRankedInventoryMatches(
                     ocrResult = ocrResult,
                     inventoryProducts = products,
-                    threshold = 0.60f
+                    threshold = 0.25f
                 )
 
-                if (rankedInventoryMatches.isNotEmpty()) {
-                    val storeMatch = rankedInventoryMatches.first()
+                if (rankedMatches.isNotEmpty()) {
+                    val storeMatch = rankedMatches.first()
                     _uiState.update {
                         it.copy(
                             detectedProduct = storeMatch,
                             selectedQuantity = 1,
-                            aiStatus = "Found: ${storeMatch.name}",
+                            aiStatus = "OCR Found: ${storeMatch.name}",
                             isProcessingFrame = false
                         )
                     }
                     return@launch
                 }
 
-                // If not in inventory but price/title found, update OCR prefilled text and status bar
-                val prefillTitle = ocrResult.topBrandTitle.ifBlank { ocrResult.dominantBrandKeywords.joinToString(" ") }
+                // If not in inventory, update status with detected title or price
+                val prefillTitle = ocrResult.topBrandTitle.ifBlank { ocrResult.dominantBrandKeywords.take(3).joinToString(" ") }
                 val prefillPrice = ocrResult.detectedPrice?.let { "%.2f".format(it) } ?: ""
 
                 if (prefillTitle.isNotBlank() || prefillPrice.isNotBlank()) {
                     val statusDesc = if (prefillPrice.isNotBlank()) {
-                        "OCR: '$prefillTitle' (₹$prefillPrice) — Tap + to Add"
+                        "OCR Scanned: '$prefillTitle' (₹$prefillPrice)"
                     } else {
-                        "OCR: '$prefillTitle' — Tap + to Add"
+                        "OCR Scanned: '$prefillTitle'"
                     }
                     _uiState.update {
                         it.copy(

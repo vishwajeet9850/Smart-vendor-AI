@@ -13,10 +13,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 
-/**
- * Fast Multi-Object YOLO Detection Repository
- * Connects to live FastAPI /detect endpoint with non-blocking fast timeouts
- */
 class YoloDetectionRepository {
 
     private val api = ApiClient.apiService
@@ -24,13 +20,14 @@ class YoloDetectionRepository {
 
     suspend fun detectFromBitmap(
         bitmap: Bitmap,
-        confThreshold: Float = 0.55f
+        confThreshold: Float = 0.50f
     ): YoloDetectResponse? = withContext(Dispatchers.IO) {
         try {
             val scaled = scaleBitmap(bitmap, maxDim = 480)
             val base64Jpeg = bitmapToBase64Jpeg(scaled)
 
-            withTimeoutOrNull(800L) {
+            // Allow 2500ms timeout for reliable initial connection handshake
+            withTimeoutOrNull(2500L) {
                 try {
                     val response = api.detectFromBase64(
                         YoloDetectRequest(image = base64Jpeg, conf = confThreshold)
@@ -43,17 +40,19 @@ class YoloDetectionRepository {
                         } else null
                     } else null
                 } catch (e: Exception) {
+                    Log.e(TAG, "YOLO network request error", e)
                     null
                 }
             }
         } catch (e: Exception) {
+            Log.e(TAG, "YOLO Bitmap processing error", e)
             null
         }
     }
 
     suspend fun detectFromImageProxy(
         imageProxy: ImageProxy,
-        confThreshold: Float = 0.55f
+        confThreshold: Float = 0.50f
     ): YoloDetectResponse? = withContext(Dispatchers.IO) {
         try {
             val bitmap = imageProxyToRotatedBitmap(imageProxy) ?: return@withContext null

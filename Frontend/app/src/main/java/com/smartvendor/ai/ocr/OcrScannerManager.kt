@@ -1,6 +1,5 @@
 package com.smartvendor.ai.ocr
 
-import android.graphics.Rect
 import android.util.Log
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageProxy
@@ -8,7 +7,6 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.smartvendor.ai.model.Product
-import com.smartvendor.ai.network.models.MasterCatalogResponse
 import java.util.Locale
 
 data class OcrResult(
@@ -85,7 +83,7 @@ class OcrScannerManager {
                             return@addOnSuccessListener
                         }
 
-                        // 1. Extract Price & Quantity safely
+                        // 1. Extract Price & Unit
                         var detectedPrice: Double? = null
                         val priceMatch = priceRegex.find(fullText)
                         if (priceMatch != null) {
@@ -114,45 +112,35 @@ class OcrScannerManager {
                             }
                         }
 
-                        // 2. Extract Dominant Brand Title safely
-                        val lineHeights = allLines.mapNotNull { it.boundingBox?.height() }
-                        val maxFontHeight = if (lineHeights.isNotEmpty()) lineHeights.maxOrNull() ?: 0 else 0
-                        val dominantHeightThreshold = (maxFontHeight * 0.45f).coerceAtLeast(20f)
-
-                        val mainTitleLines = allLines.filter { line ->
-                            val h = line.boundingBox?.height() ?: 0
+                        // 2. Extract brand words and top title cleanly
+                        val validLines = allLines.filter { line ->
                             val text = line.text?.trim() ?: ""
-                            h >= dominantHeightThreshold && text.length in 3..40 && !priceRegex.containsMatchIn(text)
+                            text.length in 2..50 && !priceRegex.containsMatchIn(text)
                         }
 
-                        val dominantText = mainTitleLines.joinToString(" ") { it.text ?: "" }
-                        val brandWords = dominantText.lowercase(Locale.getDefault())
+                        val brandWords = fullText.lowercase(Locale.getDefault())
                             .split(Regex("""[\s\-_,.:;/\]+"""))
-                            .filter { it.length >= 4 && it !in finePrintNoise && it.all { c -> c.isLetter() } }
+                            .filter { it.length >= 3 && it !in finePrintNoise }
 
-                        val topTitle = if (mainTitleLines.isNotEmpty()) {
-                            mainTitleLines.maxByOrNull {
+                        val topTitle = if (validLines.isNotEmpty()) {
+                            validLines.maxByOrNull {
                                 (it.boundingBox?.width() ?: 0) * (it.boundingBox?.height() ?: 0)
-                            }?.text ?: ""
+                            }?.text?.trim() ?: ""
                         } else {
                             ""
                         }
 
-                        if (brandWords.isNotEmpty() || topTitle.isNotBlank() || detectedPrice != null) {
-                            onSuccess(
-                                OcrResult(
-                                    dominantBrandKeywords = brandWords,
-                                    topBrandTitle = topTitle,
-                                    fullScannedText = dominantText,
-                                    detectedPrice = detectedPrice,
-                                    quantityUnit = detectedUnit
-                                )
+                        onSuccess(
+                            OcrResult(
+                                dominantBrandKeywords = brandWords,
+                                topBrandTitle = topTitle,
+                                fullScannedText = fullText,
+                                detectedPrice = detectedPrice,
+                                quantityUnit = detectedUnit
                             )
-                        } else {
-                            onNotFound()
-                        }
+                        )
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error parsing OCR results", e)
+                        Log.e(TAG, "Error in OCR callback", e)
                         onNotFound()
                     } finally {
                         try { imageProxy.close() } catch (_: Exception) {}
@@ -165,38 +153,54 @@ class OcrScannerManager {
                 }
         } catch (e: Exception) {
             try { imageProxy.close() } catch (_: Exception) {}
-            Log.e(TAG, "Failed to start OCR image processing", e)
+            Log.e(TAG, "Failed starting OCR image processing", e)
             onError(e)
         }
     }
 
     /**
-     * Matches dominant brand keywords strictly against active Store Inventory
+     * Highly sensitive keyword & token matching against Store Inventory
      */
     fun findRankedInventoryMatches(
         ocrResult: OcrResult,
         inventoryProducts: List<Product>,
-        threshold: Float = 0.60f
+        threshold: Float = 0.25f
     ): List<Product> {
-        if (inventoryProducts.isEmpty() || ocrResult.dominantBrandKeywords.isEmpty()) return emptyList()
+        if (inventoryProducts.isEmpty()) return emptyList()
 
+        val fullTextLower = ocrResult.fullScannedText.lowercase(Locale.getDefault())
         val brandTokens = ocrResult.dominantBrandKeywords.toSet()
-        val scoredMatches = mutableListOf<Pair<Product, Float>>()
+
+        val matchedProducts = mutableListOf<Pair<Product, Float>>()
 
         for (product in inventoryProducts) {
             val pNameLower = product.name.lowercase(Locale.getDefault())
-            val pTokens = pNameLower.split(Regex("""[\s\-_,.:;/\]+""")).filter { it.length >= 4 && it !in finePrintNoise }
 
-            if (pTokens.isEmpty()) continue
+            // 1. Direct Keyword Substring Match (e.g. "maggi", "oreo", "bourbon", "jim jam", "surf excel", "dettol", "tata", "atta", "rice", "lays")
+            val pWords = pNameLower.split(Regex("""[\s\-_,.:;/\]+""")).filter { it.length >= 3 && it !in finePrintNoise }
+            if (pWords.isEmpty()) continue
 
-            val intersection = pTokens.filter { token -> brandTokens.any { it.contains(token) || token.contains(it) } }
-            val score = intersection.size.toFloat() / pTokens.size.toFloat()
+            // Check if full product name is inside scanned text
+            if (fullTextLower.contains(pNameLower)) {
+                matchedProducts.add(Pair(product, 1.0f))
+                continue
+            }
 
+            // Check primary brand word match (e.g. "maggi", "oreo", "bourbon", "amul", "lays", "surf")
+            val firstWord = pWords.first()
+            if (firstWord.length >= 4 && (fullTextLower.contains(firstWord) || brandTokens.contains(firstWord))) {
+                matchedProducts.add(Pair(product, 0.85f))
+                continue
+            }
+
+            // Check token intersection score
+            val matchedTokens = pWords.filter { w -> fullTextLower.contains(w) || brandTokens.contains(w) }
+            val score = matchedTokens.size.toFloat() / pWords.size.toFloat()
             if (score >= threshold) {
-                scoredMatches.add(Pair(product, score))
+                matchedProducts.add(Pair(product, score))
             }
         }
 
-        return scoredMatches.sortedByDescending { it.second }.map { it.first }
+        return matchedProducts.sortedByDescending { it.second }.map { it.first }
     }
 }
