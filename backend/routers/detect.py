@@ -35,7 +35,7 @@ def preload_and_warmup_model():
         _yolo_model = YOLO(str(MODEL_PATH))
         # Warm up PyTorch computation graph and tensor caches
         dummy_img = Image.new("RGB", (480, 480), color=(128, 128, 128))
-        _yolo_model.predict(source=dummy_img, imgsz=480, conf=0.5, verbose=False)
+        _yolo_model.predict(source=dummy_img, imgsz=480, conf=0.65, verbose=False)
         logger.info(f"YOLO model ready and fully warmed up. Classes ({len(_yolo_model.names)}): {_yolo_model.names}")
     except Exception as e:
         logger.error(f"Failed to preload YOLO model: {e}")
@@ -85,7 +85,7 @@ def _verify_color_signature(crop_img: Image.Image, label: str) -> bool:
         s = hsv_np[:, :, 1]
         v = hsv_np[:, :, 2]
 
-        saturated = (s > 40) & (v > 50)
+        saturated = (s > 35) & (v > 40)
         if not np.any(saturated):
             return True
 
@@ -94,17 +94,24 @@ def _verify_color_signature(crop_img: Image.Image, label: str) -> bool:
         if total == 0:
             return True
 
-        yellow_pct = (np.sum((h_deg >= 40) & (h_deg <= 75)) / total) * 100
+        yellow_orange_pct = (np.sum((h_deg >= 15) & (h_deg <= 75)) / total) * 100
         green_pct = (np.sum((h_deg >= 80) & (h_deg <= 165)) / total) * 100
 
-        if lbl == "maggi":
-            if green_pct > 28.0 and yellow_pct < 35.0:
+        # Haldiram Soya Sticks is bright orange/yellow packaging.
+        # Reject if dominant color is green (e.g. BRU coffee) or dark brown without orange.
+        if lbl == "haldiram_soya_stick":
+            if green_pct > 25.0:
+                return False
+            if yellow_orange_pct < 15.0:
+                return False
+        elif lbl == "maggi":
+            if green_pct > 28.0 and yellow_orange_pct < 35.0:
                 return False
         elif lbl == "surf_excel":
-            if yellow_pct > 35.0:
+            if yellow_orange_pct > 40.0:
                 return False
         elif lbl == "oreo":
-            if green_pct > 40.0:
+            if green_pct > 35.0:
                 return False
         elif lbl == "appe_fizz":
             if green_pct > 40.0:
@@ -115,7 +122,7 @@ def _verify_color_signature(crop_img: Image.Image, label: str) -> bool:
         return True
 
 
-def _run_inference(img: Image.Image, conf_threshold: float = 0.50) -> DetectResponse:
+def _run_inference(img: Image.Image, conf_threshold: float = 0.68) -> DetectResponse:
     model = _get_model()
     rgb_img = img.convert("RGB")
     w, h = rgb_img.size
@@ -163,7 +170,7 @@ def _run_inference(img: Image.Image, conf_threshold: float = 0.50) -> DetectResp
 async def detect_from_upload(
     user_id: CurrentUser,
     file: UploadFile = File(...),
-    conf: float = Form(default=0.50)
+    conf: float = Form(default=0.68)
 ):
     if not (0.0 <= conf <= 1.0):
         raise HTTPException(status_code=400, detail="Confidence threshold must be between 0.0 and 1.0")
@@ -188,7 +195,7 @@ async def detect_from_base64(
 ):
     b64 = payload.get("image", "")
     try:
-        conf = float(payload.get("conf", 0.50))
+        conf = float(payload.get("conf", 0.68))
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid confidence value")
 

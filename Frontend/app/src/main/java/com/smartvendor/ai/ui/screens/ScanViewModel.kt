@@ -57,18 +57,21 @@ class ScanViewModel(
     private val barcodeScanner = BarcodeScannerManager()
     private val ocrScanner = OcrScannerManager()
 
-    // Strict 4.5s anti-spam cooldown per product
-    private val addedCooldownMs = 4500L
-    private val ignoredCooldownMs = 8000L
+    // 8-second strict cooldown per product
+    private val addedCooldownMs = 8000L
+    private val ignoredCooldownMs = 10000L
+    private val globalAddDebounceMs = 1500L
 
     private val recentlyAddedTimestampMap = ConcurrentHashMap<String, Long>()
     private val ignoredTimestampMap = ConcurrentHashMap<String, Long>()
+    private var lastGlobalAddTimestamp: Long = 0L
 
     // In-Flight lock to prevent parallel network requests from adding the same product twice
     private val isYoloInFlight = AtomicBoolean(false)
     private val isOcrInFlight = AtomicBoolean(false)
 
-    val confidenceThreshold = 0.50f
+    // Higher threshold (0.68) to prevent false positives on untrained items like BRU Coffee
+    val confidenceThreshold = 0.68f
 
     private val labelToProductMap = mapOf(
         "appe_fizz" to Product(id = "PROD_APPE_FIZZ", name = "Appy Fizz Sparkling Apple Drink", price = 20.0, stock = 50, category = "Beverages", barcode = "8902579100018"),
@@ -262,7 +265,7 @@ class ScanViewModel(
         }
 
         // 3. Smart AI YOLO Mode (Strict single-flight lock to eliminate double additions)
-        if (now - lastFrameProcessTime < 150L || !isYoloInFlight.compareAndSet(false, true)) {
+        if (now - lastFrameProcessTime < 180L || !isYoloInFlight.compareAndSet(false, true)) {
             imageProxy.close()
             return
         }
@@ -310,6 +313,12 @@ class ScanViewModel(
                 }
 
                 val now = System.currentTimeMillis()
+                // Global add debounce to prevent burst frame addition
+                if (now - lastGlobalAddTimestamp < globalAddDebounceMs) {
+                    _uiState.update { it.copy(activeDetections = overlayDetections, isProcessingFrame = false) }
+                    return@launch
+                }
+
                 val storeProducts = _uiState.value.inventoryProducts
                 val newProductsToAdd = mutableListOf<Product>()
 
@@ -331,7 +340,7 @@ class ScanViewModel(
                         ignoredTimestampMap[labelClean] ?: 0L
                     )
 
-                    // 4.5s anti-spam cooldown check
+                    // 8.0s anti-spam cooldown check
                     if (now - lastIgnoredTime >= ignoredCooldownMs && now - lastAddedTime >= addedCooldownMs) {
                         if (newProductsToAdd.none { it.id == matchedProduct.id }) {
                             newProductsToAdd.add(matchedProduct)
@@ -344,6 +353,7 @@ class ScanViewModel(
                 }
 
                 if (newProductsToAdd.isNotEmpty()) {
+                    lastGlobalAddTimestamp = now
                     addMultipleDirectlyToBill(newProductsToAdd, overlayDetections)
                 } else {
                     _uiState.update {
@@ -485,7 +495,7 @@ class ScanViewModel(
                 val rankedMatches = ocrScanner.findRankedInventoryMatches(
                     ocrResult = ocrResult,
                     inventoryProducts = products,
-                    threshold = 0.25f
+                    threshold = 0.20f
                 )
 
                 if (rankedMatches.isNotEmpty()) {

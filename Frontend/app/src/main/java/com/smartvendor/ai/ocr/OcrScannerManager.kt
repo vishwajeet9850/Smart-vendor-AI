@@ -112,7 +112,7 @@ class OcrScannerManager {
                             }
                         }
 
-                        // 2. Extract brand words and top title cleanly
+                        // 2. Extract brand words and top title
                         val validLines = allLines.filter { line ->
                             val text = line.text?.trim() ?: ""
                             text.length in 2..50 && !priceRegex.containsMatchIn(text)
@@ -120,7 +120,7 @@ class OcrScannerManager {
 
                         val brandWords = fullText.lowercase(Locale.getDefault())
                             .split(Regex("""[\s\-_,.:;/\]+"""))
-                            .filter { it.length >= 3 && it !in finePrintNoise }
+                            .filter { it.length >= 2 && it !in finePrintNoise }
 
                         val topTitle = if (validLines.isNotEmpty()) {
                             validLines.maxByOrNull {
@@ -159,12 +159,12 @@ class OcrScannerManager {
     }
 
     /**
-     * Highly sensitive keyword & token matching against Store Inventory
+     * Highly sensitive keyword & token matching against Store Inventory (Supports BRU, Nescafe, Maggi, etc.)
      */
     fun findRankedInventoryMatches(
         ocrResult: OcrResult,
         inventoryProducts: List<Product>,
-        threshold: Float = 0.25f
+        threshold: Float = 0.20f
     ): List<Product> {
         if (inventoryProducts.isEmpty()) return emptyList()
 
@@ -176,24 +176,37 @@ class OcrScannerManager {
         for (product in inventoryProducts) {
             val pNameLower = product.name.lowercase(Locale.getDefault())
 
-            // 1. Direct Keyword Substring Match (e.g. "maggi", "oreo", "bourbon", "jim jam", "surf excel", "dettol", "tata", "atta", "rice", "lays")
+            // Direct BRU match
+            if (brandTokens.contains("bru") || fullTextLower.contains("bru")) {
+                if (pNameLower.contains("bru")) {
+                    matchedProducts.add(Pair(product, 1.0f))
+                    continue
+                }
+            }
+
+            // Direct Nescafe / Coffee match
+            if (brandTokens.contains("nescafe") || fullTextLower.contains("nescafe")) {
+                if (pNameLower.contains("nescafe")) {
+                    matchedProducts.add(Pair(product, 1.0f))
+                    continue
+                }
+            }
+
             val pWords = pNameLower.split(Regex("""[\s\-_,.:;/\]+""")).filter { it.length >= 3 && it !in finePrintNoise }
             if (pWords.isEmpty()) continue
 
-            // Check if full product name is inside scanned text
+            // Check if full product name or significant brand is inside scanned text
             if (fullTextLower.contains(pNameLower)) {
                 matchedProducts.add(Pair(product, 1.0f))
                 continue
             }
 
-            // Check primary brand word match (e.g. "maggi", "oreo", "bourbon", "amul", "lays", "surf")
             val firstWord = pWords.first()
-            if (firstWord.length >= 4 && (fullTextLower.contains(firstWord) || brandTokens.contains(firstWord))) {
+            if (firstWord.length >= 3 && (fullTextLower.contains(firstWord) || brandTokens.contains(firstWord))) {
                 matchedProducts.add(Pair(product, 0.85f))
                 continue
             }
 
-            // Check token intersection score
             val matchedTokens = pWords.filter { w -> fullTextLower.contains(w) || brandTokens.contains(w) }
             val score = matchedTokens.size.toFloat() / pWords.size.toFloat()
             if (score >= threshold) {
