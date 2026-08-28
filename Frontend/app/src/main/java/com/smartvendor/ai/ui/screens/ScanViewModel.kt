@@ -69,11 +69,12 @@ class ScanViewModel(
     private val ignoredTimestampMap = ConcurrentHashMap<String, Long>()
     private var lastGlobalAddTimestamp: Long = 0L
 
-    // In-Flight lock to prevent parallel network requests
+    // In-Flight lock to prevent parallel frame processing
     private val isFrameProcessingLock = AtomicBoolean(false)
 
-    val confidenceThreshold = 0.60f
+    val confidenceThreshold = 0.58f
 
+    // 9 YOLO fine-tuned classes
     private val labelToProductMap = mapOf(
         "appe_fizz" to Product(id = "PROD_APPE_FIZZ", name = "Appy Fizz Sparkling Apple Drink", price = 20.0, stock = 50, category = "Beverages", barcode = "8902579100018"),
         "haldiram_soya_stick" to Product(id = "PROD_SOYA_STICK", name = "Haldiram Soya Sticks Masala", price = 20.0, stock = 40, category = "Snacks", barcode = "8904063200025"),
@@ -228,7 +229,6 @@ class ScanViewModel(
 
         viewModelScope.launch {
             try {
-                // Convert ImageProxy to Bitmap using robust fallback converter and close proxy immediately
                 val bitmap = YoloUtils.imageProxyToBitmap(imageProxy)
                 try { imageProxy.close() } catch (_: Throwable) {}
 
@@ -239,7 +239,7 @@ class ScanViewModel(
 
                 _uiState.update { it.copy(isProcessingFrame = true) }
 
-                // 1. Dedicated OCR Mode
+                // 1. Dedicated OCR Mode (Manual Confirmation Card)
                 if (_uiState.value.isOcrActive) {
                     ocrScanner.processBitmap(
                         bitmap = bitmap,
@@ -266,17 +266,17 @@ class ScanViewModel(
                     return@launch
                 }
 
-                // 3. Smart Hybrid AI Scanner (OCR Brand Text + YOLO Visual BBox Verification)
+                // 3. SMART AI MODE: Detect only products from YOLO, using OCR for confirmation/disambiguation
                 ocrScanner.processBitmap(
                     bitmap = bitmap,
                     onSuccess = { ocrResult ->
-                        handleSmartHybridScan(bitmap, ocrResult)
+                        handleYoloWithOcrConfirmation(bitmap, ocrResult)
                     },
                     onNotFound = {
-                        handleSmartHybridScan(bitmap, null)
+                        handleYoloWithOcrConfirmation(bitmap, null)
                     },
                     onError = {
-                        handleSmartHybridScan(bitmap, null)
+                        handleYoloWithOcrConfirmation(bitmap, null)
                     }
                 )
             } catch (e: Throwable) {
@@ -288,51 +288,16 @@ class ScanViewModel(
         }
     }
 
-    private fun handleSmartHybridScan(bitmap: Bitmap, ocrResult: OcrResult?) {
+    /**
+     * Smart AI: Adds ONLY products detected by YOLO.
+     * OCR is used solely for confirmation/filtering to eliminate false predictions (e.g. BRU coffee being guessed as Haldiram).
+     */
+    private fun handleYoloWithOcrConfirmation(bitmap: Bitmap, ocrResult: OcrResult?) {
         viewModelScope.launch {
             try {
                 val storeProducts = _uiState.value.inventoryProducts
                 val now = System.currentTimeMillis()
 
-                // Step A: Check if OCR read a clear brand text match in Store Inventory (e.g. BRU, Maggi, Oreo, Parle-G, Amul)
-                if (ocrResult != null) {
-                    val ocrMatches = ocrScanner.findRankedInventoryMatches(
-                        ocrResult = ocrResult,
-                        inventoryProducts = storeProducts,
-                        threshold = 0.20f
-                    )
-
-                    if (ocrMatches.isNotEmpty()) {
-                        val matchedProd = ocrMatches.first()
-                        val pId = matchedProd.id
-                        val pNameLower = matchedProd.name.lowercase()
-
-                        val lastAddedTime = maxOf(
-                            recentlyAddedTimestampMap[pId] ?: 0L,
-                            recentlyAddedTimestampMap[pNameLower] ?: 0L
-                        )
-                        val lastIgnoredTime = maxOf(
-                            ignoredTimestampMap[pId] ?: 0L,
-                            ignoredTimestampMap[pNameLower] ?: 0L
-                        )
-
-                        if (now - lastIgnoredTime >= ignoredCooldownMs && now - lastAddedTime >= addedCooldownMs) {
-                            if (now - lastGlobalAddTimestamp >= globalAddDebounceMs) {
-                                lastGlobalAddTimestamp = now
-                                recentlyAddedTimestampMap[pId] = now
-                                recentlyAddedTimestampMap[pNameLower] = now
-
-                                addMultipleDirectlyToBill(
-                                    products = listOf(matchedProd),
-                                    overlayDetections = emptyList()
-                                )
-                                return@launch
-                            }
-                        }
-                    }
-                }
-
-                // Step B: Run YOLO Object Detection and cross-verify with OCR text
                 val yoloResponse = yoloDetector.detectFromBitmap(bitmap, confThreshold = confidenceThreshold)
                 if (yoloResponse != null && yoloResponse.detections.isNotEmpty()) {
                     val detections = yoloResponse.detections
@@ -354,18 +319,40 @@ class ScanViewModel(
 
                     val newProductsToAdd = mutableListOf<Product>()
                     val scannedTextLower = ocrResult?.fullScannedText?.lowercase() ?: ""
+                    val brandTokens = ocrResult?.dominantBrandKeywords ?: emptyList()
 
                     for (det in detections) {
                         val labelClean = det.label.lowercase().trim()
 
-                        // Anti-Hallucination: If OCR read contradictory text, discard YOLO guess!
-                        if (labelClean == "haldiram_soya_stick" && (scannedTextLower.contains("bru") || scannedTextLower.contains("coffee") || scannedTextLower.contains("nescafe"))) {
-                            continue
+                        // OCR Confirmation Filter:
+                        // If OCR detects contradictory text on the packet, discard YOLO prediction!
+                        val isContradictory = when (labelClean) {
+                            "haldiram_soya_stick" -> {
+                                scannedTextLower.contains("bru") || scannedTextLower.contains("coffee") ||
+                                        scannedTextLower.contains("nescafe") || scannedTextLower.contains("tea") ||
+                                        scannedTextLower.contains("colgate") || scannedTextLower.contains("amul")
+                            }
+                            "maggi" -> {
+                                scannedTextLower.contains("bru") || scannedTextLower.contains("oreo") ||
+                                        scannedTextLower.contains("surf") || scannedTextLower.contains("tresemme")
+                            }
+                            "oreo" -> {
+                                scannedTextLower.contains("maggi") || scannedTextLower.contains("surf") ||
+                                        scannedTextLower.contains("soya") || scannedTextLower.contains("bru")
+                            }
+                            "appe_fizz" -> {
+                                scannedTextLower.contains("maggi") || scannedTextLower.contains("oreo") ||
+                                        scannedTextLower.contains("surf")
+                            }
+                            else -> false
                         }
-                        if (labelClean == "appe_fizz" && (scannedTextLower.contains("maggi") || scannedTextLower.contains("oreo"))) {
+
+                        if (isContradictory) {
+                            Log.d("ScanViewModel", "OCR filtered out contradictory YOLO detection: $labelClean (text: '$scannedTextLower')")
                             continue
                         }
 
+                        // YOLO-only product candidate
                         val matchedProduct = findProductForLabel(labelClean, storeProducts) ?: continue
 
                         val pId = matchedProduct.id
@@ -382,7 +369,7 @@ class ScanViewModel(
                             ignoredTimestampMap[labelClean] ?: 0L
                         )
 
-                        // 8.0s anti-spam cooldown check
+                        // 8.0s anti-spam cooldown check per product
                         if (now - lastIgnoredTime >= ignoredCooldownMs && now - lastAddedTime >= addedCooldownMs) {
                             if (newProductsToAdd.none { it.id == matchedProduct.id }) {
                                 newProductsToAdd.add(matchedProduct)
@@ -408,7 +395,7 @@ class ScanViewModel(
                     _uiState.update { it.copy(isProcessingFrame = false, activeDetections = emptyList()) }
                 }
             } catch (e: Exception) {
-                Log.e("ScanViewModel", "Error in smart hybrid scan", e)
+                Log.e("ScanViewModel", "Error in YOLO + OCR scan", e)
                 _uiState.update { it.copy(isProcessingFrame = false) }
             } finally {
                 isFrameProcessingLock.set(false)
