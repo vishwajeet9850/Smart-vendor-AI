@@ -1,6 +1,8 @@
 package com.smartvendor.ai.ui.screens
 
 import android.content.Context
+import android.graphics.RectF
+import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,6 +12,7 @@ import com.smartvendor.ai.model.Bill
 import com.smartvendor.ai.model.BillItem
 import com.smartvendor.ai.model.DetectionResult
 import com.smartvendor.ai.model.Product
+import com.smartvendor.ai.network.models.YoloDetectResponse
 import com.smartvendor.ai.ocr.OcrResult
 import com.smartvendor.ai.ocr.OcrScannerManager
 import com.smartvendor.ai.repository.ProductRepository
@@ -17,15 +20,17 @@ import com.smartvendor.ai.repository.ProductRepositoryImpl
 import com.smartvendor.ai.repository.SalesRepository
 import com.smartvendor.ai.repository.SalesRepositoryImpl
 import com.smartvendor.ai.voice.ParsedVoiceItem
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 data class ScanUiState(
-    val aiStatus: String = "Smart Scanner Active",
+    val aiStatus: String = "Smart AI Scanner Ready",
     val isBarcodeActive: Boolean = false,
     val isOcrActive: Boolean = false,
     val activeDetections: List<DetectionResult> = emptyList(),
@@ -62,9 +67,21 @@ class ScanViewModel(
     private val recentlyAddedTimestampMap = ConcurrentHashMap<String, Long>()
     private val addedCooldownMs = 4000L
 
+    private val labelToProductMap = mapOf(
+        "appe_fizz" to Product(id = "PROD_APPE_FIZZ", name = "Appy Fizz Sparkling Apple Drink", price = 20.0, stock = 50, category = "Beverages", barcode = "8902579100018"),
+        "haldiram_soya_stick" to Product(id = "PROD_SOYA_STICK", name = "Haldiram Soya Sticks Masala", price = 20.0, stock = 40, category = "Snacks", barcode = "8904063200025"),
+        "hide_and_seek" to Product(id = "PROD_HIDE_SEEK", name = "Parle Hide & Seek Chocolate Biscuits", price = 30.0, stock = 60, category = "Biscuits & Snacks", barcode = "8901719104014"),
+        "jim_jam" to Product(id = "PROD_JIM_JAM", name = "Britannia Treat Jim Jam Biscuits", price = 35.0, stock = 45, category = "Biscuits & Snacks", barcode = "8901063013217"),
+        "maggi" to Product(id = "PROD_MAGGI_2MIN", name = "Maggi 2-Minute Masala Instant Noodles", price = 14.0, stock = 100, category = "Instant Food", barcode = "8901058852302"),
+        "nivea_deodorant" to Product(id = "PROD_NIVEA_DEO", name = "Nivea Men Fresh Active Deodorant", price = 199.0, stock = 25, category = "Personal Care", barcode = "4005900135804"),
+        "oreo" to Product(id = "PROD_OREO_BISCUIT", name = "Cadbury Oreo Vanilla Cream Biscuits", price = 30.0, stock = 80, category = "Biscuits & Snacks", barcode = "7622201732014"),
+        "surf_excel" to Product(id = "PROD_SURF_EXCEL", name = "Surf Excel Easy Wash Detergent Powder", price = 65.0, stock = 35, category = "Household Care", barcode = "8901030386009"),
+        "tresemme_shampoo" to Product(id = "PROD_TRESEMME", name = "Tresemme Keratin Smooth Shampoo", price = 120.0, stock = 30, category = "Personal Care", barcode = "8901030700010")
+    )
+
     fun initialize(context: Context, billId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(aiStatus = "Smart Scanner Ready") }
+            _uiState.update { it.copy(aiStatus = "YOLOv11 Model Ready (9 Classes)") }
             loadBill(billId)
             observeInventory()
         }
@@ -168,7 +185,7 @@ class ScanViewModel(
                 activeDetections = emptyList(),
                 detectedProduct = null,
                 detectedProductsList = emptyList(),
-                aiStatus = if (useOcr) "Price & Label Reader Active" else "Smart Scanner Active"
+                aiStatus = if (useOcr) "Price & Label Reader Active" else "YOLOv11 Smart AI Active"
             )
         }
     }
@@ -181,7 +198,7 @@ class ScanViewModel(
                 activeDetections = emptyList(),
                 detectedProduct = null,
                 detectedProductsList = emptyList(),
-                aiStatus = if (useBarcode) "Barcode Scanner Active" else "Smart Scanner Active"
+                aiStatus = if (useBarcode) "Barcode Scanner Active" else "YOLOv11 Smart AI Active"
             )
         }
     }
@@ -190,7 +207,7 @@ class ScanViewModel(
 
     fun processFrame(imageProxy: ImageProxy) {
         val now = System.currentTimeMillis()
-        if (_uiState.value.isProcessingFrame || (now - lastFrameProcessTime < 200L)) {
+        if (_uiState.value.isProcessingFrame || (now - lastFrameProcessTime < 180L)) {
             imageProxy.close()
             return
         }
@@ -221,22 +238,111 @@ class ScanViewModel(
                 return@launch
             }
 
-            // 3. Smart Hybrid Mode
-            ocrScanner.processImage(
-                imageProxy = imageProxy,
-                onSuccess = { ocrResult ->
-                    handleOcrDetected(ocrResult)
-                },
-                onNotFound = {
-                    viewModelScope.launch {
-                        _uiState.update { it.copy(isProcessingFrame = false) }
-                    }
-                },
-                onError = {
-                    _uiState.update { it.copy(isProcessingFrame = false) }
-                }
-            )
+            // 3. Smart Hybrid Mode: First run Fine-Tuned YOLOv11 Model (9 classes)
+            val yoloResponse = yoloDetector.detectFromImageProxy(imageProxy, confThreshold = 0.50f)
+            if (yoloResponse != null && yoloResponse.detections.isNotEmpty()) {
+                handleYoloDetected(yoloResponse)
+            } else {
+                _uiState.update { it.copy(isProcessingFrame = false, activeDetections = emptyList()) }
+            }
         }
+    }
+
+    private fun handleYoloDetected(response: YoloDetectResponse) {
+        viewModelScope.launch {
+            try {
+                val detections = response.detections
+                if (detections.isEmpty()) {
+                    _uiState.update { it.copy(isProcessingFrame = false, activeDetections = emptyList()) }
+                    return@launch
+                }
+
+                // Map YOLO bounding boxes to DetectionResult for on-screen green overlays
+                val overlayDetections = detections.map { det ->
+                    val bbox = det.bbox
+                    val rect = if (bbox.size == 4) {
+                        RectF(bbox[0], bbox[1], bbox[2], bbox[3])
+                    } else {
+                        RectF(0.2f, 0.2f, 0.8f, 0.8f)
+                    }
+                    DetectionResult(
+                        classId = 0,
+                        label = det.label,
+                        confidence = det.confidence.toFloat(),
+                        boundingBox = rect
+                    )
+                }
+
+                val topDet = detections.first()
+                val labelClean = topDet.label.lowercase().trim()
+                val now = System.currentTimeMillis()
+
+                // Find matching product in Store Inventory or Seeded Catalog
+                val storeProducts = _uiState.value.inventoryProducts
+                val matchedProduct = findProductForLabel(labelClean, storeProducts)
+
+                if (matchedProduct != null) {
+                    val lastAdded = maxOf(
+                        recentlyAddedTimestampMap[matchedProduct.id] ?: 0L,
+                        recentlyAddedTimestampMap[matchedProduct.name.lowercase()] ?: 0L
+                    )
+
+                    if (now - lastAdded < addedCooldownMs || dismissedProductIds.contains(matchedProduct.id)) {
+                        _uiState.update {
+                            it.copy(
+                                activeDetections = overlayDetections,
+                                isProcessingFrame = false
+                            )
+                        }
+                        return@launch
+                    }
+
+                    _uiState.update {
+                        it.copy(
+                            activeDetections = overlayDetections,
+                            detectedProduct = matchedProduct,
+                            detectedProductsList = listOf(matchedProduct),
+                            selectedQuantity = 1,
+                            aiStatus = "Detected: ${matchedProduct.name} (${(topDet.confidence * 100).toInt()}%)",
+                            isProcessingFrame = false
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            activeDetections = overlayDetections,
+                            aiStatus = "Detected: ${topDet.label} (${(topDet.confidence * 100).toInt()}%)",
+                            isProcessingFrame = false
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isProcessingFrame = false) }
+            }
+        }
+    }
+
+    private fun findProductForLabel(label: String, storeProducts: List<Product>): Product? {
+        val normalized = label.replace("_", " ").lowercase().trim()
+
+        // 1. Direct match in active store inventory
+        val directMatch = storeProducts.firstOrNull { prod ->
+            val pName = prod.name.lowercase()
+            pName.contains(normalized) || normalized.contains(pName) ||
+                    (label.contains("maggi") && pName.contains("maggi")) ||
+                    (label.contains("oreo") && pName.contains("oreo")) ||
+                    (label.contains("surf") && pName.contains("surf")) ||
+                    (label.contains("appe") && (pName.contains("appe") || pName.contains("appy"))) ||
+                    (label.contains("jim") && pName.contains("jim")) ||
+                    (label.contains("hide") && pName.contains("hide")) ||
+                    (label.contains("soya") && pName.contains("soya")) ||
+                    (label.contains("nivea") && pName.contains("nivea")) ||
+                    (label.contains("tresemme") && pName.contains("tresemme"))
+        }
+        if (directMatch != null) return directMatch
+
+        // 2. Fallback to predefined fine-tuned 9 class product definitions
+        return labelToProductMap[label]
     }
 
     private fun handleBarcodeDetected(barcode: String) {

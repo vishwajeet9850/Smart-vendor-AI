@@ -24,10 +24,10 @@ import java.nio.channels.FileChannel
 class TFLiteClassifier(private val context: Context) {
 
     private var interpreter: Interpreter? = null
-    private var labels: List<String> = listOf("appe_fizz", "surf_excel", "hide_and_seek", "oreo", "maggi", "jim_jam")
+    private var labels: List<String> = listOf("appe_fizz", "haldiram_soya_stick", "hide_and_seek", "jim_jam", "maggi", "nivea_deodorant", "oreo", "surf_excel", "tresemme_shampoo")
     private var isInitialized = false
     private val modelInputSize = 640
-    private val numClasses = 6
+    private val numClasses = 9
     private val numPredictions = 8400
 
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
@@ -73,9 +73,9 @@ class TFLiteClassifier(private val context: Context) {
     private fun loadLabels(): List<String> {
         return try {
             val list = context.assets.open("labels.txt").bufferedReader().readLines().filter { it.isNotBlank() }
-            if (list.isNotEmpty()) list else listOf("appe_fizz", "surf_excel", "hide_and_seek", "oreo", "maggi", "jim_jam")
+            if (list.isNotEmpty()) list else listOf("appe_fizz", "haldiram_soya_stick", "hide_and_seek", "jim_jam", "maggi", "nivea_deodorant", "oreo", "surf_excel", "tresemme_shampoo")
         } catch (e: Exception) {
-            listOf("appe_fizz", "surf_excel", "hide_and_seek", "oreo", "maggi", "jim_jam")
+            listOf("appe_fizz", "haldiram_soya_stick", "hide_and_seek", "jim_jam", "maggi", "nivea_deodorant", "oreo", "surf_excel", "tresemme_shampoo")
         }
     }
 
