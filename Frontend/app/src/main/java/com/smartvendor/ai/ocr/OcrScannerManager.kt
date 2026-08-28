@@ -54,6 +54,8 @@ class OcrScannerManager {
         RegexOption.IGNORE_CASE
     )
 
+    private val wordSplitRegex = Regex("""[\s\-_,.:;/\|]+""")
+
     fun processBitmap(
         bitmap: Bitmap,
         onSuccess: (OcrResult) -> Unit,
@@ -64,10 +66,15 @@ class OcrScannerManager {
             val image = InputImage.fromBitmap(bitmap, 0)
             recognizer.process(image)
                 .addOnSuccessListener { visionText ->
-                    val result = parseVisionText(visionText)
-                    if (result != null) {
-                        onSuccess(result)
-                    } else {
+                    try {
+                        val result = parseVisionText(visionText)
+                        if (result != null) {
+                            onSuccess(result)
+                        } else {
+                            onNotFound()
+                        }
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "Error in OCR parsing", e)
                         onNotFound()
                     }
                 }
@@ -75,7 +82,7 @@ class OcrScannerManager {
                     Log.e(TAG, "OCR Bitmap Recognition error", e)
                     onError(e)
                 }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed starting OCR bitmap processing", e)
             onError(e)
         }
@@ -90,7 +97,7 @@ class OcrScannerManager {
     ) {
         val mediaImage = imageProxy.image
         if (mediaImage == null) {
-            try { imageProxy.close() } catch (_: Exception) {}
+            try { imageProxy.close() } catch (_: Throwable) {}
             onNotFound()
             return
         }
@@ -106,17 +113,20 @@ class OcrScannerManager {
                         } else {
                             onNotFound()
                         }
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "Error in OCR parseVisionText", e)
+                        onNotFound()
                     } finally {
-                        try { imageProxy.close() } catch (_: Exception) {}
+                        try { imageProxy.close() } catch (_: Throwable) {}
                     }
                 }
                 .addOnFailureListener { e ->
-                    try { imageProxy.close() } catch (_: Exception) {}
+                    try { imageProxy.close() } catch (_: Throwable) {}
                     Log.e(TAG, "OCR Recognition error", e)
                     onError(e)
                 }
-        } catch (e: Exception) {
-            try { imageProxy.close() } catch (_: Exception) {}
+        } catch (e: Throwable) {
+            try { imageProxy.close() } catch (_: Throwable) {}
             Log.e(TAG, "Failed starting OCR image processing", e)
             onError(e)
         }
@@ -165,7 +175,7 @@ class OcrScannerManager {
         }
 
         val brandWords = fullText.lowercase(Locale.getDefault())
-            .split(Regex("""[\s\-_,.:;/\]+"""))
+            .split(wordSplitRegex)
             .filter { it.length >= 2 && it !in finePrintNoise }
 
         val topTitle = if (validLines.isNotEmpty()) {
@@ -291,7 +301,7 @@ class OcrScannerManager {
                 }
             }
 
-            val pWords = pNameLower.split(Regex("""[\s\-_,.:;/\]+""")).filter { it.length >= 3 && it !in finePrintNoise }
+            val pWords = pNameLower.split(wordSplitRegex).filter { it.length >= 3 && it !in finePrintNoise }
             if (pWords.isEmpty()) continue
 
             if (fullTextLower.contains(pNameLower)) {
