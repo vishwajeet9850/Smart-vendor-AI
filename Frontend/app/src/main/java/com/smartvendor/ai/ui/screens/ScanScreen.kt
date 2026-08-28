@@ -165,12 +165,12 @@ fun ScanScreen(
                     }
                 }
 
-                // Auto-Added Toast Notification with Live Undo
-                if (uiState.lastAddedProduct != null) {
-                    AddedUndoToast(
-                        product = uiState.lastAddedProduct!!,
+                // Auto-Added Multi-Product Toast Notification with Live Undo
+                if (uiState.lastAddedProducts.isNotEmpty()) {
+                    MultiAddedUndoToast(
+                        products = uiState.lastAddedProducts,
                         timestamp = uiState.lastAddedTimestamp,
-                        onUndo = { viewModel.undoLastAddedProduct() },
+                        onUndo = { viewModel.undoLastAddedBatch() },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 92.dp, start = 16.dp, end = 16.dp)
@@ -281,8 +281,8 @@ fun ScanScreen(
 }
 
 @Composable
-fun AddedUndoToast(
-    product: Product,
+fun MultiAddedUndoToast(
+    products: List<Product>,
     timestamp: Long,
     onUndo: () -> Unit,
     modifier: Modifier = Modifier
@@ -334,12 +334,14 @@ fun AddedUndoToast(
                     }
 
                     Column {
+                        val title = if (products.size == 1) "Added +1" else "Added +${products.size} Products"
+                        val subtitle = products.joinToString(", ") { "${it.name} (₹${it.price.toInt()})" }
                         Text(
-                            text = "Added +1",
+                            text = title,
                             style = MaterialTheme.typography.labelSmall.copy(color = AccentGreen, fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = "${product.name} (₹${product.price.toInt()})",
+                            text = subtitle,
                             style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis

@@ -31,7 +31,6 @@ data class ScanUiState(
     val isBarcodeActive: Boolean = false,
     val isOcrActive: Boolean = false,
     val activeDetections: List<DetectionResult> = emptyList(),
-    val detectedProduct: Product? = null,
     val currentBill: Bill? = null,
     val showManualEntryDialog: Boolean = false,
     val showVoiceDialog: Boolean = false,
@@ -39,7 +38,7 @@ data class ScanUiState(
     val ocrPrefilledPrice: String = "",
     val inventoryProducts: List<Product> = emptyList(),
     val isProcessingFrame: Boolean = false,
-    val lastAddedProduct: Product? = null,
+    val lastAddedProducts: List<Product> = emptyList(),
     val lastAddedTimestamp: Long = 0L
 )
 
@@ -55,12 +54,15 @@ class ScanViewModel(
     private val barcodeScanner = BarcodeScannerManager()
     private val ocrScanner = OcrScannerManager()
 
-    // 4.0s cooldown per product to avoid double additions while holding in view
-    private val addedCooldownMs = 4000L
+    // 3.5s cooldown per product to avoid double additions of the same item
+    private val addedCooldownMs = 3500L
     private val ignoredCooldownMs = 8000L
 
     private val recentlyAddedTimestampMap = ConcurrentHashMap<String, Long>()
     private val ignoredTimestampMap = ConcurrentHashMap<String, Long>()
+
+    // Confidence threshold for YOLO detection accuracy (0.50 = 50% confidence)
+    val confidenceThreshold = 0.50f
 
     private val labelToProductMap = mapOf(
         "appe_fizz" to Product(id = "PROD_APPE_FIZZ", name = "Appy Fizz Sparkling Apple Drink", price = 20.0, stock = 50, category = "Beverages", barcode = "8902579100018"),
@@ -76,7 +78,7 @@ class ScanViewModel(
 
     fun initialize(context: Context, billId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(aiStatus = "Smart AI Scanner Ready") }
+            _uiState.update { it.copy(aiStatus = "Multi-Object AI Scanner Ready") }
             loadBill(billId)
             observeInventory()
         }
@@ -178,7 +180,6 @@ class ScanViewModel(
                 isOcrActive = useOcr,
                 isBarcodeActive = false,
                 activeDetections = emptyList(),
-                detectedProduct = null,
                 aiStatus = if (useOcr) "Price & Label Reader Active" else "Smart AI Scanner Ready"
             )
         }
@@ -190,7 +191,6 @@ class ScanViewModel(
                 isBarcodeActive = useBarcode,
                 isOcrActive = false,
                 activeDetections = emptyList(),
-                detectedProduct = null,
                 aiStatus = if (useBarcode) "Barcode Scanner Active" else "Smart AI Scanner Ready"
             )
         }
@@ -231,8 +231,8 @@ class ScanViewModel(
                 return@launch
             }
 
-            // 3. Smart Hybrid Mode: Runs YOLOv11 Detections directly into bill
-            val yoloResponse = yoloDetector.detectFromImageProxy(imageProxy, confThreshold = 0.50f)
+            // 3. Smart Hybrid Mode: Runs YOLOv11 Multi-Object Detections directly into bill
+            val yoloResponse = yoloDetector.detectFromImageProxy(imageProxy, confThreshold = confidenceThreshold)
             if (yoloResponse != null && yoloResponse.detections.isNotEmpty()) {
                 handleYoloDetected(yoloResponse)
             } else {
@@ -250,6 +250,7 @@ class ScanViewModel(
                     return@launch
                 }
 
+                // Green bounding box overlays for all detected products in scene
                 val overlayDetections = detections.map { det ->
                     val bbox = det.bbox
                     val rect = if (bbox.size == 4) {
@@ -265,50 +266,100 @@ class ScanViewModel(
                     )
                 }
 
-                val topDet = detections.first()
-                val labelClean = topDet.label.lowercase().trim()
                 val now = System.currentTimeMillis()
-
                 val storeProducts = _uiState.value.inventoryProducts
-                val matchedProduct = findProductForLabel(labelClean, storeProducts)
+                val newProductsToAdd = mutableListOf<Product>()
 
-                if (matchedProduct != null) {
+                // Iterate through ALL detected products in the frame
+                for (det in detections) {
+                    val labelClean = det.label.lowercase().trim()
+                    val matchedProduct = findProductForLabel(labelClean, storeProducts) ?: continue
+
                     val pId = matchedProduct.id
                     val pNameLower = matchedProduct.name.lowercase()
 
                     val lastAddedTime = maxOf(recentlyAddedTimestampMap[pId] ?: 0L, recentlyAddedTimestampMap[pNameLower] ?: 0L)
                     val lastIgnoredTime = maxOf(ignoredTimestampMap[pId] ?: 0L, ignoredTimestampMap[pNameLower] ?: 0L)
 
-                    // Skip if ignored or on cooldown
-                    if (now - lastIgnoredTime < ignoredCooldownMs || now - lastAddedTime < addedCooldownMs) {
-                        _uiState.update {
-                            it.copy(
-                                activeDetections = overlayDetections,
-                                isProcessingFrame = false
-                            )
+                    // If NOT on cooldown and NOT ignored, add to this frame's batch
+                    if (now - lastIgnoredTime >= ignoredCooldownMs && now - lastAddedTime >= addedCooldownMs) {
+                        // Prevent duplicate in same frame iteration
+                        if (newProductsToAdd.none { it.id == matchedProduct.id }) {
+                            newProductsToAdd.add(matchedProduct)
                         }
-                        return@launch
                     }
+                }
 
-                    // Directly add to bill & apply cooldown
-                    addDirectlyToBill(matchedProduct)
-                    _uiState.update {
-                        it.copy(
-                            activeDetections = overlayDetections,
-                            isProcessingFrame = false
-                        )
-                    }
+                if (newProductsToAdd.isNotEmpty()) {
+                    addMultipleDirectlyToBill(newProductsToAdd, overlayDetections)
                 } else {
                     _uiState.update {
                         it.copy(
                             activeDetections = overlayDetections,
-                            aiStatus = "Detected: ${topDet.label} (${(topDet.confidence * 100).toInt()}%)",
                             isProcessingFrame = false
                         )
                     }
                 }
             } catch (_: Exception) {
                 _uiState.update { it.copy(isProcessingFrame = false) }
+            }
+        }
+    }
+
+    private fun addMultipleDirectlyToBill(products: List<Product>, overlayDetections: List<DetectionResult>) {
+        val now = System.currentTimeMillis()
+        val currentBillState = _uiState.value.currentBill ?: Bill(billId = "BILL_${System.currentTimeMillis()}")
+        val items = currentBillState.items.toMutableList()
+
+        for (prod in products) {
+            // Set cooldown timestamp per distinct product
+            recentlyAddedTimestampMap[prod.id] = now
+            recentlyAddedTimestampMap[prod.name.lowercase()] = now
+
+            val index = items.indexOfFirst { it.productId == prod.id || it.name.equals(prod.name, ignoreCase = true) }
+            if (index >= 0) {
+                val old = items[index]
+                val newQty = old.quantity + 1
+                items[index] = old.copy(quantity = newQty, lineTotal = newQty * old.unitPrice)
+            } else {
+                items.add(
+                    BillItem(
+                        productId = prod.id,
+                        name = prod.name,
+                        quantity = 1,
+                        unitPrice = prod.price
+                    )
+                )
+            }
+        }
+
+        val newSubtotal = items.sumOf { it.quantity * it.unitPrice }
+        val newGrandTotal = newSubtotal + (newSubtotal * 0.05) - currentBillState.discount
+
+        val updated = currentBillState.copy(
+            items = items,
+            subtotal = newSubtotal,
+            gst = newSubtotal * 0.05,
+            grandTotal = newGrandTotal
+        )
+
+        val statusText = if (products.size == 1) {
+            "Added +1 ${products[0].name}"
+        } else {
+            "Added ${products.size} Products (${products.joinToString(", ") { it.name.take(12) }})"
+        }
+
+        viewModelScope.launch {
+            salesRepository.saveBill(updated)
+            _uiState.update {
+                it.copy(
+                    currentBill = updated,
+                    activeDetections = overlayDetections,
+                    lastAddedProducts = products,
+                    lastAddedTimestamp = now,
+                    aiStatus = statusText,
+                    isProcessingFrame = false
+                )
             }
         }
     }
@@ -345,7 +396,7 @@ class ScanViewModel(
                 val lastIgnored = ignoredTimestampMap[match.id] ?: 0L
 
                 if (now - lastIgnored >= ignoredCooldownMs && now - lastAdded >= addedCooldownMs) {
-                    addDirectlyToBill(match)
+                    addMultipleDirectlyToBill(listOf(match), emptyList())
                 }
             } else {
                 val catMatches = productRepository.searchMasterCatalog(barcode).getOrDefault(emptyList())
@@ -359,7 +410,7 @@ class ScanViewModel(
                         barcode = catItem.barcode ?: barcode,
                         stock = 30
                     )
-                    addDirectlyToBill(newProd)
+                    addMultipleDirectlyToBill(listOf(newProd), emptyList())
                 } else {
                     _uiState.update {
                         it.copy(
@@ -394,7 +445,7 @@ class ScanViewModel(
                         continue
                     }
 
-                    addDirectlyToBill(storeMatch)
+                    addMultipleDirectlyToBill(listOf(storeMatch), emptyList())
                     return@launch
                 }
 
@@ -424,7 +475,7 @@ class ScanViewModel(
                             continue
                         }
 
-                        addDirectlyToBill(targetProduct)
+                        addMultipleDirectlyToBill(listOf(targetProduct), emptyList())
                         return@launch
                     }
                 }
@@ -436,34 +487,34 @@ class ScanViewModel(
         }
     }
 
-    private fun addDirectlyToBill(product: Product) {
+    fun undoLastAddedBatch() {
+        val lastAddedList = _uiState.value.lastAddedProducts
+        if (lastAddedList.isEmpty()) return
+        val currentBill = _uiState.value.currentBill ?: return
         val now = System.currentTimeMillis()
-        recentlyAddedTimestampMap[product.id] = now
-        recentlyAddedTimestampMap[product.name.lowercase()] = now
 
-        val currentBillState = _uiState.value.currentBill ?: Bill(billId = "BILL_${System.currentTimeMillis()}")
-        val items = currentBillState.items.toMutableList()
-        val index = items.indexOfFirst { it.productId == product.id || it.name.equals(product.name, ignoreCase = true) }
+        val items = currentBill.items.toMutableList()
 
-        if (index >= 0) {
-            val old = items[index]
-            val newQty = old.quantity + 1
-            items[index] = old.copy(quantity = newQty, lineTotal = newQty * old.unitPrice)
-        } else {
-            items.add(
-                BillItem(
-                    productId = product.id,
-                    name = product.name,
-                    quantity = 1,
-                    unitPrice = product.price
-                )
-            )
+        for (lastAdded in lastAddedList) {
+            ignoredTimestampMap[lastAdded.id] = now
+            ignoredTimestampMap[lastAdded.name.lowercase()] = now
+
+            val index = items.indexOfLast { it.productId == lastAdded.id || it.name.equals(lastAdded.name, ignoreCase = true) }
+            if (index >= 0) {
+                val item = items[index]
+                if (item.quantity > 1) {
+                    val newQty = item.quantity - 1
+                    items[index] = item.copy(quantity = newQty, lineTotal = newQty * item.unitPrice)
+                } else {
+                    items.removeAt(index)
+                }
+            }
         }
 
         val newSubtotal = items.sumOf { it.quantity * it.unitPrice }
-        val newGrandTotal = newSubtotal + (newSubtotal * 0.05) - currentBillState.discount
+        val newGrandTotal = newSubtotal + (newSubtotal * 0.05) - currentBill.discount
 
-        val updated = currentBillState.copy(
+        val updated = currentBill.copy(
             items = items,
             subtotal = newSubtotal,
             gst = newSubtotal * 0.05,
@@ -475,54 +526,9 @@ class ScanViewModel(
             _uiState.update {
                 it.copy(
                     currentBill = updated,
-                    lastAddedProduct = product,
-                    lastAddedTimestamp = now,
-                    aiStatus = "Added +1 ${product.name} (₹${product.price.toInt()})"
+                    lastAddedProducts = emptyList(),
+                    aiStatus = "Undone: Removed items"
                 )
-            }
-        }
-    }
-
-    fun undoLastAddedProduct() {
-        val lastAdded = _uiState.value.lastAddedProduct ?: return
-        val currentBill = _uiState.value.currentBill ?: return
-        val now = System.currentTimeMillis()
-
-        // Place on ignored cooldown for 8s
-        ignoredTimestampMap[lastAdded.id] = now
-        ignoredTimestampMap[lastAdded.name.lowercase()] = now
-
-        val items = currentBill.items.toMutableList()
-        val index = items.indexOfLast { it.productId == lastAdded.id || it.name.equals(lastAdded.name, ignoreCase = true) }
-
-        if (index >= 0) {
-            val item = items[index]
-            if (item.quantity > 1) {
-                val newQty = item.quantity - 1
-                items[index] = item.copy(quantity = newQty, lineTotal = newQty * item.unitPrice)
-            } else {
-                items.removeAt(index)
-            }
-
-            val newSubtotal = items.sumOf { it.quantity * it.unitPrice }
-            val newGrandTotal = newSubtotal + (newSubtotal * 0.05) - currentBill.discount
-
-            val updated = currentBill.copy(
-                items = items,
-                subtotal = newSubtotal,
-                gst = newSubtotal * 0.05,
-                grandTotal = newGrandTotal
-            )
-
-            viewModelScope.launch {
-                salesRepository.saveBill(updated)
-                _uiState.update {
-                    it.copy(
-                        currentBill = updated,
-                        lastAddedProduct = null,
-                        aiStatus = "Removed ${lastAdded.name}"
-                    )
-                }
             }
         }
     }
