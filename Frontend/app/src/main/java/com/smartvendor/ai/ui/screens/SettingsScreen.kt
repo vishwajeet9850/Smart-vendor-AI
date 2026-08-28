@@ -1,15 +1,17 @@
 package com.smartvendor.ai.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -25,29 +28,27 @@ import com.smartvendor.ai.repository.AuthRepository
 import com.smartvendor.ai.repository.AuthRepositoryImpl
 import com.smartvendor.ai.repository.StoreRepository
 import com.smartvendor.ai.repository.StoreRepositoryImpl
-import com.smartvendor.ai.ui.theme.BluePrimary
+import com.smartvendor.ai.ui.theme.AccentGreen
+import com.smartvendor.ai.ui.theme.DangerRed
+import com.smartvendor.ai.ui.theme.RedPrimary
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    authRepository: AuthRepository = remember { AuthRepositoryImpl() },
     onNavigateBack: () -> Unit,
-    onLogoutSuccess: () -> Unit = onNavigateBack
+    onLogoutSuccess: () -> Unit
 ) {
-    val storeRepository: StoreRepository = remember { StoreRepositoryImpl() }
-    val storeInfo by storeRepository.getStoreInfo().collectAsState(initial = Store())
-    val currentUser by authRepository.getCurrentUser().collectAsState(initial = null)
-
     val coroutineScope = rememberCoroutineScope()
-    var isDarkMode by remember { mutableStateOf(false) }
+    val authRepository: AuthRepository = remember { AuthRepositoryImpl() }
+    val storeRepository: StoreRepository = remember { StoreRepositoryImpl() }
+
+    val currentUser by authRepository.getCurrentUser().collectAsState(initial = null)
+    val storeInfo by storeRepository.getStoreInfo().collectAsState(initial = Store())
+
     var showStoreInfoDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
-
-    // Dynamic Store Name (uses registered User Name if Store Name is not set)
-    val displayStoreName = storeInfo.name.ifBlank { currentUser?.name ?: "My Store" }
-    val displayAddress = storeInfo.address.ifBlank { "Tap to set store address" }
-    val displayGst = if (storeInfo.gst.isNotBlank()) "GST: ${storeInfo.gst}" else "GST: Not Specified"
+    var saveSuccessMessage by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -57,7 +58,11 @@ fun SettingsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
         }
     ) { innerPadding ->
@@ -65,85 +70,40 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(20.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Dynamic Store Profile Card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showStoreInfoDialog = true },
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            if (saveSuccessMessage != null) {
+                Surface(
+                    color = AccentGreen.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, AccentGreen.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(BluePrimary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Outlined.Store, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            text = displayStoreName,
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                        )
-                        Text(
-                            text = displayAddress,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = if (storeInfo.address.isNotBlank()) BluePrimary else Color.Gray
-                            )
-                        )
-                        Text(
-                            text = "$displayGst  |  Role: Admin",
-                            style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
-                        )
-                    }
+                    Text(
+                        text = saveSuccessMessage!!,
+                        color = AccentGreen,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(12.dp)
+                    )
                 }
             }
 
-            Text("Preferences", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-
+            // Store Profile Card
             SettingsItemRow(
                 icon = Icons.Outlined.Storefront,
-                title = "Edit Store Profile & Address",
-                subtitle = "Set your store address, phone, GST, and UPI ID",
+                title = "Store Profile",
+                subtitle = storeInfo.name.ifBlank { "SmartVendor Kirana Store" },
                 onClick = { showStoreInfoDialog = true }
             )
 
-            SettingsItemRow(
-                icon = Icons.Outlined.DarkMode,
-                title = "Dark Mode",
-                subtitle = "Toggle dark visual theme",
-                trailing = {
-                    Switch(
-                        checked = isDarkMode,
-                        onCheckedChange = { isDarkMode = it }
-                    )
-                },
-                onClick = { isDarkMode = !isDarkMode }
-            )
-
-            SettingsItemRow(
-                icon = Icons.Outlined.Sync,
-                title = "Cloud Synchronization",
-                subtitle = "FastAPI backend & SQLite active",
-                onClick = { }
-            )
-
+            // About App Card
             SettingsItemRow(
                 icon = Icons.Outlined.Info,
                 title = "About SmartVendor AI",
-                subtitle = "Version 1.0.0 (FastAPI & YOLO TFLite Powered)",
+                subtitle = "Version 1.0.0 • AI-Powered Kirana POS",
                 onClick = { showAboutDialog = true }
             )
 
@@ -156,7 +116,7 @@ fun SettingsScreen(
                         onLogoutSuccess()
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                colors = ButtonDefaults.buttonColors(containerColor = DangerRed),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -176,8 +136,9 @@ fun SettingsScreen(
                 onDismiss = { showStoreInfoDialog = false },
                 onSave = { updatedStore ->
                     coroutineScope.launch {
-                        storeRepository.saveStoreInfo(updatedStore)
+                        val result = storeRepository.saveStoreInfo(updatedStore)
                         showStoreInfoDialog = false
+                        saveSuccessMessage = if (result.isSuccess) "Store profile saved successfully!" else "Saved locally (Offline mode)"
                     }
                 }
             )
@@ -186,12 +147,15 @@ fun SettingsScreen(
         if (showAboutDialog) {
             AlertDialog(
                 onDismissRequest = { showAboutDialog = false },
-                title = { Text("About SmartVendor AI") },
+                title = { Text("About SmartVendor AI", fontWeight = FontWeight.Bold) },
                 text = {
-                    Text("Production-quality AI Retail Billing & Inventory App built with Jetpack Compose, CameraX, TensorFlow Lite (YOLO object detection), ML Kit Barcode Scanner, FastAPI, SQLite, and Firebase Auth.")
+                    Text("Smart Kirana retail billing and inventory management application with smart camera detection, barcode scanning, multilingual voice billing in Marathi & Hindi with Groq Whisper AI, and instant digital receipts.")
                 },
                 confirmButton = {
-                    Button(onClick = { showAboutDialog = false }) {
+                    Button(
+                        onClick = { showAboutDialog = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
+                    ) {
                         Text("Close")
                     }
                 }
@@ -283,7 +247,8 @@ fun EditStoreInfoDialog(
                             upi = upi
                         )
                     )
-                }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
             ) {
                 Text("Save Store Profile")
             }
@@ -304,13 +269,13 @@ fun SettingsItemRow(
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
     ) {
         Row(
             modifier = Modifier
@@ -325,19 +290,27 @@ fun SettingsItemRow(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .background(BluePrimary.copy(alpha = 0.12f), CircleShape),
+                        .size(42.dp)
+                        .background(RedPrimary.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(icon, contentDescription = null, tint = BluePrimary)
+                    Icon(icon, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(22.dp))
                 }
                 Spacer(modifier = Modifier.width(14.dp))
                 Column {
                     Text(title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray))
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
                 }
             }
-            trailing?.invoke()
+            if (trailing != null) {
+                trailing()
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
         }
     }
 }

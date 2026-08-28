@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartvendor.ai.model.Bill
 import com.smartvendor.ai.model.BillItem
+import com.smartvendor.ai.repository.LocalStoreManager
 import com.smartvendor.ai.repository.ProductRepository
 import com.smartvendor.ai.repository.ProductRepositoryImpl
 import com.smartvendor.ai.repository.SalesRepository
 import com.smartvendor.ai.repository.SalesRepositoryImpl
+import com.smartvendor.ai.voice.ParsedVoiceItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +22,7 @@ data class BillingUiState(
     val discountInput: Double = 0.0,
     val isProcessingCheckout: Boolean = false,
     val checkoutSuccess: Boolean = false,
+    val showVoiceDialog: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -37,6 +40,47 @@ class BillingViewModel(
                 _uiState.update { it.copy(bill = bill) }
             }
         }
+    }
+
+    fun openVoiceDialog() {
+        _uiState.update { it.copy(showVoiceDialog = true) }
+    }
+
+    fun closeVoiceDialog() {
+        _uiState.update { it.copy(showVoiceDialog = false) }
+    }
+
+    fun addVoiceItemsToBill(voiceItems: List<ParsedVoiceItem>) {
+        val currentBill = _uiState.value.bill ?: return
+        val currentItems = currentBill.items.toMutableList()
+
+        for (vItem in voiceItems) {
+            val prod = vItem.matchedProduct ?: continue
+            val existingIndex = currentItems.indexOfFirst { it.productId == prod.id }
+
+            if (existingIndex >= 0) {
+                val existing = currentItems[existingIndex]
+                val newQty = existing.quantity + vItem.quantity
+                currentItems[existingIndex] = existing.copy(
+                    quantity = newQty,
+                    lineTotal = (newQty * existing.unitPrice) + (((newQty * existing.unitPrice) * existing.gst) / 100.0)
+                )
+            } else {
+                val lineTotal = (vItem.quantity * prod.price) + (((vItem.quantity * prod.price) * prod.gst) / 100.0)
+                currentItems.add(
+                    BillItem(
+                        productId = prod.id,
+                        name = prod.name,
+                        unitPrice = prod.price,
+                        quantity = vItem.quantity,
+                        gst = prod.gst,
+                        lineTotal = lineTotal
+                    )
+                )
+            }
+        }
+
+        recalculateBill(currentBill, currentItems)
     }
 
     fun setPaymentMethod(method: String) {

@@ -1,5 +1,6 @@
 package com.smartvendor.ai.ui.screens
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartvendor.ai.network.ApiClient
@@ -11,26 +12,29 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+@Immutable
 data class StockRecommendation(
-    val productId: String,
-    val productName: String,
-    val currentStock: Int,
-    val recommendedReorder: Int,
-    val category: String,
-    val peakWindow: String,
-    val salesVelocity: String,
-    val reasoning: String,
-    val urgencyLevel: String
+    val productId: String = "",
+    val productName: String = "",
+    val currentStock: Int = 0,
+    val recommendedReorder: Int = 0,
+    val category: String = "",
+    val peakWindow: String = "",
+    val salesVelocity: String = "",
+    val reasoning: String = "",
+    val urgencyLevel: String = ""
 )
 
+@Immutable
 data class MarketTrend(
-    val title: String,
-    val description: String,
-    val recommendedProduct: String,
-    val actionType: String,
-    val badgeLabel: String
+    val title: String = "",
+    val description: String = "",
+    val recommendedProduct: String = "",
+    val actionType: String = "",
+    val badgeLabel: String = ""
 )
 
+@Immutable
 data class ReportsUiState(
     val selectedTimeRange: String = "Last 30 Days",
     val totalRevenue: Double = 0.0,
@@ -152,7 +156,6 @@ class ReportsViewModel : ViewModel() {
     }
 
     fun restockProduct(productId: String, amount: Int) {
-        // 1. Instant optimistic UI feedback: increase stock in local state
         val updatedRecs = _uiState.value.stockRecommendations.map { rec ->
             if (rec.productId == productId) {
                 val newStock = rec.currentStock + amount
@@ -164,7 +167,6 @@ class ReportsViewModel : ViewModel() {
         }
         _uiState.update { it.copy(stockRecommendations = updatedRecs) }
 
-        // 2. Persist stock update in database
         viewModelScope.launch {
             try {
                 val current = api.getProduct(productId)

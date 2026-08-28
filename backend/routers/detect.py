@@ -59,6 +59,18 @@ def _verify_color_signature(crop_img: Image.Image, label: str) -> bool:
     Eliminates out-of-domain false positives (e.g. Green Soya Sticks confused as Yellow Maggi).
     """
     try:
+        rgb = np.array(crop_img.convert("RGB"))
+        if rgb.size == 0:
+            return True
+
+        mean_lum = np.mean(rgb)
+        lbl = label.lower().strip()
+
+        # Reject black/covered camera
+        if lbl in ["appe_fizz", "appy"]:
+            if mean_lum < 35.0:
+                return False
+
         small = crop_img.resize((64, 64)).convert("HSV")
         hsv_np = np.array(small)
         h = hsv_np[:, :, 0]
@@ -77,25 +89,19 @@ def _verify_color_signature(crop_img: Image.Image, label: str) -> bool:
         yellow_pct = (np.sum((h_deg >= 40) & (h_deg <= 75)) / total) * 100
         green_pct = (np.sum((h_deg >= 80) & (h_deg <= 165)) / total) * 100
         blue_pct = (np.sum((h_deg >= 180) & (h_deg <= 260)) / total) * 100
+        red_pct = (np.sum((h_deg >= 340) | (h_deg <= 18)) / total) * 100
+        purple_pct = (np.sum((h_deg >= 260) & (h_deg < 340)) / total) * 100
 
-        lbl = label.lower().strip()
         if lbl == "maggi":
-            # Maggi packaging is bright yellow. Green packets (like Soya Sticks) are rejected instantly.
             if green_pct > 28.0 and yellow_pct < 35.0:
                 return False
-
         elif lbl == "surf_excel":
-            # Surf Excel is blue/white/cyan.
             if yellow_pct > 35.0:
                 return False
-
         elif lbl == "oreo":
-            # Oreo is blue/dark.
             if green_pct > 40.0:
                 return False
-
         elif lbl == "appe_fizz":
-            # Appy Fizz is dark/red/gold.
             if green_pct > 40.0:
                 return False
 
@@ -165,10 +171,6 @@ async def detect_from_upload(
     file: UploadFile = File(...),
     conf: float = Form(default=0.65)
 ):
-    """
-    Accept a JPEG/PNG camera frame and return YOLO detections.
-    The Android app sends a camera preview frame here.
-    """
     try:
         contents = await file.read()
         img = Image.open(io.BytesIO(contents))
@@ -182,10 +184,6 @@ async def detect_from_upload(
 
 @router.post("/base64", response_model=DetectResponse, summary="Detect products from a base64 image")
 async def detect_from_base64(payload: dict):
-    """
-    Accept JSON with { "image": "<base64>", "conf": 0.65 } and return detections.
-    Useful for the Android CameraX analysis use-case.
-    """
     try:
         b64 = payload.get("image", "")
         conf = float(payload.get("conf", 0.65))
@@ -201,7 +199,6 @@ async def detect_from_base64(payload: dict):
 
 @router.get("/classes", summary="List classes the YOLO model can detect")
 async def get_classes():
-    """Returns the product classes the trained model knows."""
     try:
         model = _get_model()
         return {"classes": model.names, "num_classes": len(model.names)}

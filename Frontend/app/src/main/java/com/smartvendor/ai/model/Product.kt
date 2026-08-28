@@ -1,8 +1,10 @@
 package com.smartvendor.ai.model
 
 import androidx.annotation.Keep
+import androidx.compose.runtime.Immutable
 
 @Keep
+@Immutable
 data class Product(
     val id: String = "",
     val classId: Int = -1,

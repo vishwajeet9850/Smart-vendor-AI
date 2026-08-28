@@ -24,7 +24,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smartvendor.ai.ui.components.BarChart
 import com.smartvendor.ai.ui.components.PieChart
 import com.smartvendor.ai.ui.theme.AccentGreen
-import com.smartvendor.ai.ui.theme.BluePrimary
+import com.smartvendor.ai.ui.theme.RedPrimary
 import com.smartvendor.ai.ui.theme.WarningYellow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,16 +34,21 @@ fun ReportsScreen(
     onNavigateBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val timeRanges = remember { listOf("Today", "Yesterday", "Last 7 Days", "Last 30 Days") }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Sales Reports & Analytics", fontWeight = FontWeight.Bold) },
+                title = { Text("Sales & Analytics", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
         }
     ) { innerPadding ->
@@ -55,347 +60,173 @@ fun ReportsScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(bottom = 32.dp)
             ) {
-                // Time Filter Row
-                item {
+                // Time Range Filter Row
+                item(key = "time_range_chips") {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        contentPadding = PaddingValues(vertical = 2.dp)
                     ) {
-                        items(listOf("Today", "Yesterday", "Last 7 Days", "Last 30 Days")) { range ->
+                        items(timeRanges, key = { it }) { range ->
+                            val isSelected = range == uiState.selectedTimeRange
                             FilterChip(
-                                selected = uiState.selectedTimeRange == range,
+                                selected = isSelected,
                                 onClick = { viewModel.selectTimeRange(range) },
-                                label = { Text(range, fontWeight = FontWeight.SemiBold) },
+                                label = { Text(range, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = BluePrimary,
+                                    selectedContainerColor = RedPrimary,
                                     selectedLabelColor = Color.White
-                                )
+                                ),
+                                shape = RoundedCornerShape(12.dp)
                             )
                         }
                     }
                 }
 
-                // Metric Overview Cards
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        MetricCard(
-                            title = "Total Revenue",
-                            value = "₹${"%.2f".format(uiState.totalRevenue)}",
-                            icon = Icons.Outlined.Payments,
-                            color = BluePrimary,
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricCard(
-                            title = "Transactions",
-                            value = "${uiState.totalTransactions}",
-                            icon = Icons.Outlined.ReceiptLong,
-                            color = AccentGreen,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        MetricCard(
-                            title = "Avg Bill Value",
-                            value = "₹${"%.2f".format(uiState.averageBillValue)}",
-                            icon = Icons.Outlined.TrendingUp,
-                            color = Color(0xFFFF9800),
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricCard(
-                            title = "Best Seller",
-                            value = uiState.bestSellingProduct,
-                            icon = Icons.Outlined.Star,
-                            color = Color(0xFF9C27B0),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                // Smart AI Inventory Restock Recommendations Card
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, BluePrimary.copy(alpha = 0.25f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                // Summary Metric Cards
+                item(key = "metric_cards") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Surface(
-                                    color = BluePrimary.copy(alpha = 0.12f),
-                                    shape = CircleShape,
-                                    modifier = Modifier.size(38.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            Icons.Outlined.AutoAwesome,
-                                            contentDescription = null,
-                                            tint = BluePrimary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                                Column {
-                                    Text(
-                                        text = "Smart Restock Recommendations",
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                    )
-                                    Text(
-                                        text = "AI predictions based on peak hours & velocity",
-                                        style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
-                                    )
-                                }
-                            }
+                            MetricCard(
+                                title = "Total Revenue",
+                                value = "₹${if (uiState.totalRevenue % 1.0 == 0.0) uiState.totalRevenue.toInt() else uiState.totalRevenue}",
+                                icon = Icons.Outlined.CurrencyRupee,
+                                color = RedPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            MetricCard(
+                                title = "Total Bills",
+                                value = "${uiState.totalTransactions}",
+                                icon = Icons.Outlined.Receipt,
+                                color = AccentGreen,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
 
-                            if (uiState.stockRecommendations.isNotEmpty()) {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    uiState.stockRecommendations.forEach { rec ->
-                                        Surface(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp),
-                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                                            border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.4f))
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(14.dp),
-                                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Text(
-                                                        text = rec.productName.replaceFirstChar { it.uppercase() },
-                                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                                    )
-                                                    Surface(
-                                                        color = when (rec.urgencyLevel) {
-                                                            "HIGH" -> Color.Red.copy(alpha = 0.15f)
-                                                            "MEDIUM" -> WarningYellow.copy(alpha = 0.18f)
-                                                            else -> BluePrimary.copy(alpha = 0.15f)
-                                                        },
-                                                        shape = RoundedCornerShape(8.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = rec.salesVelocity,
-                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                                color = when (rec.urgencyLevel) {
-                                                                    "HIGH" -> Color.Red
-                                                                    "MEDIUM" -> Color(0xFFD84315)
-                                                                    else -> BluePrimary
-                                                                },
-                                                                fontWeight = FontWeight.Bold
-                                                            )
-                                                        )
-                                                    }
-                                                }
-
-                                                Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Surface(
-                                                        color = BluePrimary.copy(alpha = 0.1f),
-                                                        shape = RoundedCornerShape(8.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = rec.peakWindow,
-                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                                color = BluePrimary,
-                                                                fontWeight = FontWeight.SemiBold
-                                                            )
-                                                        )
-                                                    }
-                                                    Text(
-                                                        text = "Stock Left: ${rec.currentStock}",
-                                                        style = MaterialTheme.typography.bodySmall.copy(
-                                                            color = if (rec.currentStock <= 5) Color.Red else Color.Gray,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    )
-                                                }
-
-                                                Text(
-                                                    text = rec.reasoning,
-                                                    style = MaterialTheme.typography.bodySmall.copy(
-                                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                                                        lineHeight = 16.sp
-                                                    )
-                                                )
-
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.End
-                                                ) {
-                                                    Button(
-                                                        onClick = { viewModel.restockProduct(rec.productId, rec.recommendedReorder) },
-                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-                                                        shape = RoundedCornerShape(10.dp),
-                                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text(
-                                                            text = "Restock +${rec.recommendedReorder}",
-                                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = AccentGreen)
-                                    Text(
-                                        text = "All products have healthy inventory levels!",
-                                        style = MaterialTheme.typography.bodyMedium.copy(color = Color.DarkGray)
-                                    )
-                                }
-                            }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            MetricCard(
+                                title = "Avg Bill Value",
+                                value = "₹${if (uiState.averageBillValue % 1.0 == 0.0) uiState.averageBillValue.toInt() else uiState.averageBillValue.toInt()}",
+                                icon = Icons.Outlined.TrendingUp,
+                                color = Color(0xFF1976D2),
+                                modifier = Modifier.weight(1f)
+                            )
+                            MetricCard(
+                                title = "Top Seller",
+                                value = uiState.bestSellingProduct.take(12),
+                                icon = Icons.Outlined.Star,
+                                color = WarningYellow,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
 
-                // Cross-Vendor Market Intelligence Section (Redesigned)
-                if (uiState.marketTrends.isNotEmpty()) {
-                    item {
-                        Card(
+                // AI Stock Recommendations Card
+                if (uiState.stockRecommendations.isNotEmpty()) {
+                    item(key = "stock_recommendations_card") {
+                        Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            border = BorderStroke(1.dp, Color(0xFF3F51B5).copy(alpha = 0.25f)),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                         ) {
                             Column(
-                                modifier = Modifier.padding(18.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     Surface(
-                                        color = Color(0xFF3F51B5).copy(alpha = 0.12f),
+                                        color = RedPrimary.copy(alpha = 0.12f),
                                         shape = CircleShape,
-                                        modifier = Modifier.size(38.dp)
+                                        modifier = Modifier.size(36.dp)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Icon(
-                                                Icons.Outlined.Public,
+                                                Icons.Outlined.AutoAwesome,
                                                 contentDescription = null,
-                                                tint = Color(0xFF3F51B5),
-                                                modifier = Modifier.size(20.dp)
+                                                tint = RedPrimary,
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         }
                                     }
                                     Column {
                                         Text(
-                                            text = "Cross-Vendor Market Insights",
+                                            text = "Restock Recommendations",
                                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                                         )
                                         Text(
-                                            text = "Market demand & opportunities across local stores",
+                                            text = "Predictions based on store velocity & demand",
                                             style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                                         )
                                     }
                                 }
 
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    uiState.marketTrends.forEach { trend ->
-                                        Surface(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(14.dp),
-                                            color = MaterialTheme.colorScheme.surface,
-                                            border = BorderStroke(1.dp, Color(0xFF3F51B5).copy(alpha = 0.18f))
+                                uiState.stockRecommendations.forEach { rec ->
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Row(modifier = Modifier.fillMaxWidth()) {
-                                                // Left color accent bar
-                                                Box(
-                                                    modifier = Modifier
-                                                        .width(5.dp)
-                                                        .fillMaxHeight()
-                                                        .background(
-                                                            if (trend.actionType == "ADD_PRODUCT") WarningYellow
-                                                            else Color(0xFF3F51B5)
-                                                        )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = rec.productName,
+                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                                                 )
-
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(14.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                Surface(
+                                                    color = if (rec.currentStock <= 5) Color.Red.copy(alpha = 0.15f) else WarningYellow.copy(alpha = 0.2f),
+                                                    shape = RoundedCornerShape(6.dp)
                                                 ) {
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                                        verticalAlignment = Alignment.Top
-                                                    ) {
-                                                        Text(
-                                                            text = trend.title,
-                                                            style = MaterialTheme.typography.titleSmall.copy(
-                                                                fontWeight = FontWeight.Bold,
-                                                                fontSize = 15.sp
-                                                            ),
-                                                            modifier = Modifier.weight(1f)
-                                                        )
-
-                                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                                        Surface(
-                                                            color = if (trend.actionType == "ADD_PRODUCT") WarningYellow.copy(alpha = 0.15f)
-                                                                    else Color(0xFF3F51B5).copy(alpha = 0.12f),
-                                                            shape = RoundedCornerShape(8.dp)
-                                                        ) {
-                                                            Text(
-                                                                text = trend.badgeLabel,
-                                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                                    color = if (trend.actionType == "ADD_PRODUCT") Color(0xFFE65100)
-                                                                            else Color(0xFF3F51B5),
-                                                                    fontWeight = FontWeight.Bold
-                                                                )
-                                                            )
-                                                        }
-                                                    }
-
                                                     Text(
-                                                        text = trend.description,
-                                                        style = MaterialTheme.typography.bodySmall.copy(
-                                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                                                            lineHeight = 16.sp
+                                                        text = "Stock: ${rec.currentStock}",
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            color = if (rec.currentStock <= 5) Color.Red else Color(0xFFD84315),
+                                                            fontWeight = FontWeight.Bold
                                                         )
                                                     )
+                                                }
+                                            }
+
+                                            Text(
+                                                text = rec.reasoning,
+                                                style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            )
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End
+                                            ) {
+                                                Button(
+                                                    onClick = { viewModel.restockProduct(rec.productId, rec.recommendedReorder) },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Reorder +${rec.recommendedReorder}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             }
                                         }
@@ -407,42 +238,42 @@ fun ReportsScreen(
                 }
 
                 // Revenue Bar Chart Card
-                item {
-                    Card(
+                item(key = "revenue_trend_card") {
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     ) {
-                        Column(modifier = Modifier.padding(18.dp)) {
+                        Column(modifier = Modifier.padding(16.dp)) {
                             Text(
                                 text = "Revenue Trend (₹)",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
-                            Spacer(modifier = Modifier.height(14.dp))
-                            BarChart(dataPoints = uiState.revenueDataPoints)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            BarChart(dataPoints = uiState.revenueDataPoints, barColor = RedPrimary)
                         }
                     }
                 }
 
-                // Category Breakdown Card
-                item {
-                    Card(
+                // Category Distribution Card
+                item(key = "category_distribution_card") {
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     ) {
                         Column(
-                            modifier = Modifier.padding(18.dp),
+                            modifier = Modifier.padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "Category Distribution",
+                                text = "Product Sales Distribution",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 modifier = Modifier.align(Alignment.Start)
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
                             PieChart(categoryData = uiState.categoryDistribution)
                         }
                     }
@@ -452,7 +283,7 @@ fun ReportsScreen(
             if (uiState.isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
-                    color = BluePrimary
+                    color = RedPrimary
                 )
             }
         }
@@ -467,16 +298,16 @@ fun MetricCard(
     color: Color,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier.height(110.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    Surface(
+        modifier = modifier.height(95.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
@@ -488,7 +319,7 @@ fun MetricCard(
                     text = title,
                     style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                 )
-                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
             }
             Text(
                 text = value,

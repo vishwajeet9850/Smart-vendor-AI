@@ -3,6 +3,8 @@ package com.smartvendor.ai.network
 import com.smartvendor.ai.network.models.*
 import retrofit2.Response
 import retrofit2.http.*
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 
 interface ApiService {
 
@@ -85,4 +87,14 @@ interface ApiService {
         @Query("search") search: String? = null,
         @Query("limit") limit: Int = 20
     ): Response<List<MasterCatalogResponse>>
+
+    // ─── Voice Transcription (Groq Whisper) ──────────────────────────
+
+    @Multipart
+    @POST("api/voice/transcribe")
+    suspend fun transcribeAudio(
+        @Part file: MultipartBody.Part,
+        @Part("language") language: RequestBody? = null,
+        @Header("X-Groq-Api-Key") groqApiKey: String? = null
+    ): Response<VoiceTranscribeResponse>
 }

@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,6 +14,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
@@ -21,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,8 +34,13 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smartvendor.ai.model.Bill
 import com.smartvendor.ai.model.BillItem
+import com.smartvendor.ai.model.Store
+import com.smartvendor.ai.repository.StoreRepositoryImpl
+import com.smartvendor.ai.ui.components.VoiceBillingSheet
 import com.smartvendor.ai.ui.theme.AccentGreen
-import com.smartvendor.ai.ui.theme.BluePrimary
+import com.smartvendor.ai.ui.theme.RedPrimary
+import com.smartvendor.ai.ui.theme.WarningYellow
+import com.smartvendor.ai.utils.QrCodeUtils
 import com.smartvendor.ai.utils.SmsUtils
 import com.smartvendor.ai.utils.WhatsAppUtils
 
@@ -45,7 +55,11 @@ fun BillingScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val storeRepository = remember { StoreRepositoryImpl() }
+    val storeInfo by storeRepository.getStoreInfo().collectAsState(initial = Store())
+
     var showDigitalReceiptDialog by remember { mutableStateOf(false) }
+    var showUpiQrDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(key1 = billId) {
         viewModel.loadBill(billId)
@@ -57,10 +71,33 @@ fun BillingScreen(
                 title = { Text("Billing Summary", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                actions = {
+                    if (!uiState.checkoutSuccess) {
+                        IconButton(onClick = { viewModel.openVoiceDialog() }) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice Billing", tint = RedPrimary)
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
+        },
+        floatingActionButton = {
+            if (!uiState.checkoutSuccess) {
+                ExtendedFloatingActionButton(
+                    onClick = { viewModel.openVoiceDialog() },
+                    containerColor = RedPrimary,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp),
+                    icon = { Icon(Icons.Default.Mic, contentDescription = "Voice Billing") },
+                    text = { Text("Voice Bill (मराठी/हिंदी)", fontWeight = FontWeight.Bold) }
+                )
+            }
         }
     ) { innerPadding ->
         Box(
@@ -71,18 +108,18 @@ fun BillingScreen(
             val bill = uiState.bill
 
             if (uiState.checkoutSuccess && bill != null) {
-                // Checkout Success View with 3 Clear Post-Checkout Options
+                // Checkout Success View
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Card(
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(24.dp),
                         shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     ) {
                         Column(
                             modifier = Modifier
@@ -104,8 +141,8 @@ fun BillingScreen(
                             )
 
                             Text(
-                                text = "Bill Total: ₹${"%.2f".format(bill.grandTotal)}  •  ${bill.paymentMethod}",
-                                style = MaterialTheme.typography.titleMedium.copy(color = BluePrimary, fontWeight = FontWeight.Bold)
+                                text = "Bill Total: ₹${if (bill.grandTotal % 1.0 == 0.0) bill.grandTotal.toInt() else bill.grandTotal}  •  ${bill.paymentMethod}",
+                                style = MaterialTheme.typography.titleMedium.copy(color = RedPrimary, fontWeight = FontWeight.Bold)
                             )
 
                             Spacer(modifier = Modifier.height(4.dp))
@@ -117,14 +154,14 @@ fun BillingScreen(
                                     .fillMaxWidth()
                                     .height(48.dp),
                                 shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
+                                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
                             ) {
-                                Icon(Icons.Default.Send, contentDescription = null, tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Send Digital Receipt 📱", fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("Send Digital Receipt", fontWeight = FontWeight.Bold, color = Color.White)
                             }
 
-                            // 2. Scan New Bill (Directly opens Camera Scanner for Next Customer)
+                            // 2. Scan New Bill
                             Button(
                                 onClick = onStartNewBill,
                                 modifier = Modifier
@@ -135,7 +172,7 @@ fun BillingScreen(
                             ) {
                                 Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.White)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Scan New Bill 📷", fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("Scan New Bill", fontWeight = FontWeight.Bold, color = Color.White)
                             }
 
                             // 3. Return to Dashboard
@@ -148,7 +185,7 @@ fun BillingScreen(
                             ) {
                                 Icon(Icons.Default.Home, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Return to Dashboard 🏠", fontWeight = FontWeight.Bold)
+                                Text("Return to Dashboard", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -159,7 +196,8 @@ fun BillingScreen(
                         modifier = Modifier
                             .weight(1f)
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(bottom = 80.dp)
                     ) {
                         items(bill.items, key = { it.productId }) { item ->
                             BillItemRow(
@@ -180,9 +218,10 @@ fun BillingScreen(
                         selectedPaymentMethod = uiState.selectedPaymentMethod,
                         isProcessing = uiState.isProcessingCheckout,
                         onPaymentMethodSelect = { viewModel.setPaymentMethod(it) },
+                        onShowUpiQr = { showUpiQrDialog = true },
                         onCheckout = {
                             viewModel.performCheckout {
-                                // Checkout completes, presenting option to share digital receipt
+                                // Checkout completes
                             }
                         }
                     )
@@ -192,59 +231,73 @@ fun BillingScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Outlined.Payments,
                             contentDescription = null,
                             modifier = Modifier.size(64.dp),
                             tint = Color.Gray
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "Current Bill is Empty",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Scan products from live camera feed to add items.",
-                            color = Color.Gray
+                            text = "Scan products with camera or tap 'Voice Bill' to speak items.",
+                            color = Color.Gray,
+                            fontSize = 13.sp
                         )
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Button(onClick = onNavigateBack) {
-                            Text("Back to Scanner")
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(onClick = onNavigateBack) {
+                                Text("Back to Scanner")
+                            }
+                            Button(
+                                onClick = { viewModel.openVoiceDialog() },
+                                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
+                            ) {
+                                Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Voice Bill")
+                            }
                         }
                     }
                 }
+            }
+
+            if (showUpiQrDialog && uiState.bill != null) {
+                UpiPaymentQrDialog(
+                    billId = uiState.bill!!.billId,
+                    grandTotal = uiState.bill!!.grandTotal,
+                    storeName = storeInfo.name.ifBlank { "SmartVendor Store" },
+                    upiId = storeInfo.upi.ifBlank { "smartvendor@upi" },
+                    onDismiss = { showUpiQrDialog = false },
+                    onPaymentConfirmed = {
+                        showUpiQrDialog = false
+                        viewModel.setPaymentMethod("UPI")
+                        viewModel.performCheckout {}
+                    }
+                )
             }
 
             if (showDigitalReceiptDialog && uiState.bill != null) {
                 DigitalReceiptDialog(
                     bill = uiState.bill!!,
-                    onDismiss = { showDigitalReceiptDialog = false },
-                    onSendSms = { phone ->
-                        val sent = SmsUtils.sendSilentSmsReceipt(context, phone, uiState.bill!!)
-                        if (sent) showDigitalReceiptDialog = false
-                    },
-                    onSendWhatsApp = { phone ->
-                        WhatsAppUtils.sendWhatsAppBill(context, phone, uiState.bill!!)
-                        showDigitalReceiptDialog = false
-                    }
+                    store = storeInfo,
+                    onDismiss = { showDigitalReceiptDialog = false }
                 )
             }
 
-            if (uiState.errorMessage != null) {
-                Snackbar(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(16.dp),
-                    action = {
-                        TextButton(onClick = { viewModel.clearError() }) {
-                            Text("DISMISS", color = Color.White)
-                        }
+            // Voice Billing Modal Bottom Sheet
+            if (uiState.showVoiceDialog) {
+                VoiceBillingSheet(
+                    onDismiss = { viewModel.closeVoiceDialog() },
+                    onAddItemsToBill = { voiceItems ->
+                        viewModel.addVoiceItemsToBill(voiceItems)
                     }
-                ) {
-                    Text(uiState.errorMessage!!)
-                }
+                )
             }
         }
     }
@@ -257,11 +310,11 @@ fun BillItemRow(
     onDecrease: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
     ) {
         Row(
             modifier = Modifier
@@ -275,9 +328,8 @@ fun BillItemRow(
                     text = item.name,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "₹${"%.2f".format(item.unitPrice)}  |  GST: ${item.gst}%",
+                    text = "₹${if (item.unitPrice % 1.0 == 0.0) item.unitPrice.toInt() else item.unitPrice} each",
                     style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                 )
             }
@@ -288,35 +340,34 @@ fun BillItemRow(
             ) {
                 IconButton(
                     onClick = onDecrease,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                    modifier = Modifier.size(32.dp),
+                    colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Icon(Icons.Default.Remove, contentDescription = "Minus", modifier = Modifier.size(18.dp))
+                    Text("-", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
 
                 Text(
                     text = "${item.quantity}",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 )
 
                 IconButton(
                     onClick = onIncrease,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                    modifier = Modifier.size(32.dp),
+                    colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Plus", modifier = Modifier.size(18.dp))
+                    Text("+", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
 
-                Spacer(modifier = Modifier.width(4.dp))
-
                 Text(
-                    text = "₹${"%.2f".format(item.lineTotal)}",
+                    text = "₹${if (item.lineTotal % 1.0 == 0.0) item.lineTotal.toInt() else item.lineTotal}",
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = BluePrimary
-                    )
+                        color = RedPrimary
+                    ),
+                    modifier = Modifier.padding(start = 8.dp)
                 )
 
                 IconButton(onClick = onDelete) {
@@ -336,85 +387,87 @@ fun BillingFooterCard(
     selectedPaymentMethod: String,
     isProcessing: Boolean,
     onPaymentMethodSelect: (String) -> Unit,
+    onShowUpiQr: () -> Unit,
     onCheckout: () -> Unit
 ) {
     Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp,
-        shadowElevation = 12.dp,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "Select Payment Mode",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-            )
-
+            // Payment Mode Chips
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("CASH", "UPI", "CARD", "OTHER").forEach { mode ->
-                    val isSelected = selectedPaymentMethod == mode
+                listOf("CASH", "UPI", "KHATA").forEach { mode ->
+                    val isSelected = selectedPaymentMethod.equals(mode, ignoreCase = true)
                     FilterChip(
                         selected = isSelected,
-                        onClick = { onPaymentMethodSelect(mode) },
-                        label = { Text(mode) },
-                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onPaymentMethodSelect(mode)
+                            if (mode == "UPI") onShowUpiQr()
+                        },
+                        label = { Text(mode, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = BluePrimary,
+                            selectedContainerColor = RedPrimary,
                             selectedLabelColor = Color.White
-                        )
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
 
-            HorizontalDivider()
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Subtotal", color = Color.Gray)
-                Text("₹${"%.2f".format(subtotal)}")
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("GST Tax", color = Color.Gray)
-                Text("₹${"%.2f".format(gst)}")
-            }
-            if (discount > 0) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Discount", color = AccentGreen)
-                    Text("-₹${"%.2f".format(discount)}", color = AccentGreen)
-                }
-            }
+            // Total Calculation Breakdown
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Grand Total", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+                Column {
+                    Text(
+                        text = "Subtotal: ₹${if (subtotal % 1.0 == 0.0) subtotal.toInt() else subtotal}",
+                        style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
+                    )
+                    Text(
+                        text = "Grand Total",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
                 Text(
-                    text = "₹${"%.2f".format(grandTotal)}",
-                    style = MaterialTheme.typography.headlineSmall.copy(
+                    text = "₹${if (grandTotal % 1.0 == 0.0) grandTotal.toInt() else grandTotal}",
+                    style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = BluePrimary
+                        color = RedPrimary
                     )
                 )
             }
 
+            // Checkout Button
             Button(
                 onClick = onCheckout,
-                enabled = !isProcessing,
+                enabled = !isProcessing && grandTotal > 0,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
             ) {
                 if (isProcessing) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
                 } else {
-                    Text("Complete Checkout", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Check, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Complete Checkout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
@@ -422,138 +475,154 @@ fun BillingFooterCard(
 }
 
 @Composable
-fun DigitalReceiptDialog(
-    bill: Bill,
+fun UpiPaymentQrDialog(
+    billId: String,
+    grandTotal: Double,
+    storeName: String,
+    upiId: String,
     onDismiss: () -> Unit,
-    onSendSms: (String) -> Unit,
-    onSendWhatsApp: (String) -> Unit
+    onPaymentConfirmed: () -> Unit
 ) {
-    val context = LocalContext.current
-    var phoneInput by remember { mutableStateOf("") }
-    val dailySmsCount = remember { SmsUtils.getDailySmsCount(context) }
-    val isLimitReached = dailySmsCount >= SmsUtils.DAILY_SMS_LIMIT
-
-    val smsPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            onSendSms(phoneInput)
-        }
-    }
+    val upiPayload = "upi://pay?pa=$upiId&pn=${storeName.replace(" ", "%20")}&am=$grandTotal&cu=INR&tn=Bill_$billId"
+    val qrBitmap = remember(upiPayload) { QrCodeUtils.generateQrCodeBitmap(upiPayload, 300, 300) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Send, contentDescription = null, tint = BluePrimary)
-                Text("Send Digital Receipt", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-            }
-        },
+        title = { Text("Scan UPI QR to Pay", fontWeight = FontWeight.Bold) },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    text = "Enter Customer Mobile Number for digital receipt delivery:",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.Gray
-                )
-
-                OutlinedTextField(
-                    value = phoneInput,
-                    onValueChange = { phoneInput = it },
-                    label = { Text("Customer Mobile Number") },
-                    placeholder = { Text("e.g. 9876543210") },
-                    leadingIcon = { Text("🇮🇳 +91 ", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (isLimitReached) {
-                    Surface(
-                        color = Color.Red.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "⚠️ Daily free SMS limit ($dailySmsCount/${SmsUtils.DAILY_SMS_LIMIT}) reached. Please send via WhatsApp below 💬",
-                            modifier = Modifier.padding(10.dp),
-                            style = MaterialTheme.typography.labelSmall.copy(color = Color.Red, fontWeight = FontWeight.Bold)
-                        )
-                    }
-                } else {
-                    Text(
-                        text = "Daily Free SMS Used: $dailySmsCount / ${SmsUtils.DAILY_SMS_LIMIT}",
-                        style = MaterialTheme.typography.labelSmall.copy(color = Color.Gray, fontWeight = FontWeight.Medium)
+                if (qrBitmap != null) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "UPI QR Code",
+                        modifier = Modifier
+                            .size(220.dp)
+                            .padding(8.dp)
                     )
                 }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Option 1: Direct Silent SMS (Icon at Front)
-                Button(
-                    onClick = {
-                        if (phoneInput.length >= 10) {
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
-                                onSendSms(phoneInput)
-                            } else {
-                                smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
-                            }
-                        }
-                    },
-                    enabled = !isLimitReached && phoneInput.length >= 10,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text("🚀 ", fontSize = 16.sp)
-                        Text("Send Silent SMS Receipt", fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                // Option 2: WhatsApp Receipt (Icon at Front - WhatsApp Green)
-                Button(
-                    onClick = {
-                        if (phoneInput.length >= 10) {
-                            onSendWhatsApp(phoneInput)
-                        }
-                    },
-                    enabled = phoneInput.length >= 10,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text("💬 ", fontSize = 16.sp)
-                        Text("Send via WhatsApp", fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                }
+                Text("Total: ₹${if (grandTotal % 1.0 == 0.0) grandTotal.toInt() else grandTotal}", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = RedPrimary)
+                Text("UPI ID: $upiId", fontSize = 12.sp, color = Color.Gray)
             }
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth()
+        confirmButton = {
+            Button(
+                onClick = onPaymentConfirmed,
+                colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
             ) {
-                Text("Cancel", fontWeight = FontWeight.Bold, color = Color.Gray)
+                Text("Payment Received")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
     )
+}
+
+@Composable
+fun DigitalReceiptDialog(
+    bill: Bill,
+    store: Store,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var customerPhone by remember { mutableStateOf("") }
+    var sendStatus by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Send Digital Receipt", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = customerPhone,
+                    onValueChange = { customerPhone = it },
+                    label = { Text("Customer Mobile Number") },
+                    placeholder = { Text("e.g. 9876543210") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (sendStatus != null) {
+                    Text(
+                        text = sendStatus!!,
+                        color = if (sendStatus!!.startsWith("Sent")) AccentGreen else RedPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            if (customerPhone.length >= 10) {
+                                val text = buildReceiptText(bill, store)
+                                WhatsAppUtils.sendWhatsAppBill(context, customerPhone, bill)
+                                sendStatus = "Opened WhatsApp to send."
+                            } else {
+                                sendStatus = "Please enter valid 10-digit number."
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("WhatsApp", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = {
+                            if (customerPhone.length >= 10) {
+                                val text = buildReceiptText(bill, store)
+                                SmsUtils.sendSilentSmsReceipt(context, customerPhone, bill)
+                                sendStatus = "Sent SMS to $customerPhone."
+                            } else {
+                                sendStatus = "Please enter valid 10-digit number."
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("SMS", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
+}
+
+private fun buildReceiptText(bill: Bill, store: Store): String {
+    val storeName = store.name.ifBlank { "Smart Vendor Kirana" }
+    val itemsSummary = bill.items.joinToString("\n") {
+        "- ${it.name} (${it.quantity}x) = ₹${it.lineTotal.toInt()}"
+    }
+    return """
+        🛒 *${storeName}*
+        Bill ID: ${bill.billId}
+        -----------------------
+        ${itemsSummary}
+        -----------------------
+        *Total: ₹${bill.grandTotal.toInt()}*
+        Payment: ${bill.paymentMethod}
+        
+        Thank you for shopping with us! 🙏
+    """.trimIndent()
 }

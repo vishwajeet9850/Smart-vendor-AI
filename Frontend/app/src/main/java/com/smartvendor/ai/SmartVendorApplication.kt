@@ -6,11 +6,10 @@ import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import com.smartvendor.ai.repository.ProductRepositoryImpl
+import com.smartvendor.ai.repository.LocalStoreManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class SmartVendorApplication : Application() {
@@ -21,18 +20,16 @@ class SmartVendorApplication : Application() {
         super.onCreate()
         Log.d(TAG, "SmartVendorApplication initializing core services & pre-warming...")
         
+        // Initialize 100% Offline-First Local Store Manager
+        LocalStoreManager.init(this)
+
         preWarmServices()
     }
 
     private fun preWarmServices() {
         applicationScope.launch {
             try {
-                // 1. Pre-warm HTTP Connection & Cache Store Products in RAM
-                Log.d(TAG, "Pre-fetching inventory products in background...")
-                val repo = ProductRepositoryImpl()
-                repo.getProductsStream().collect()
-
-                // 2. Pre-warm ML Kit OCR Native C++ Engine
+                // Pre-warm ML Kit Text Recognizer C++ engine
                 Log.d(TAG, "Pre-warming ML Kit Text Recognizer C++ engine...")
                 val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
                 val dummyBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)

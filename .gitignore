@@ -24,6 +24,9 @@ serviceAccountKey.json
 *.pem
 *.key
 .env
+**/.env
+**/.env*
+*.env
 
 # OS
 Thumbs.db
@@ -31,4 +34,4 @@ Thumbs.db
 
 # Sensitive & Backup Files
 Backup-codes-*.txt
-*.db
+*.db

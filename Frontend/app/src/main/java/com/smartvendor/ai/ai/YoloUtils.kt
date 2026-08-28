@@ -2,8 +2,12 @@ package com.smartvendor.ai.ai
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.YuvImage
 import androidx.camera.core.ImageProxy
@@ -14,49 +18,87 @@ import java.nio.ByteOrder
 import kotlin.math.max
 import kotlin.math.min
 
+data class LetterboxResult(
+    val byteBuffer: ByteBuffer,
+    val scale: Float,
+    val padX: Float,
+    val padY: Float
+)
+
 object YoloUtils {
 
     fun imageProxyToBitmap(image: ImageProxy): Bitmap? {
-        val plane = image.planes[0]
-        val buffer = plane.buffer
-        val bytes = ByteArray(buffer.remaining())
-        buffer.get(bytes)
+        return try {
+            val rotationDegrees = image.imageInfo.rotationDegrees
+            val bitmap = image.toBitmap()
+            if (rotationDegrees != 0) {
+                val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                bitmap
+            }
+        } catch (e: Throwable) {
+            try {
+                val planes = image.planes
+                val yBuffer = planes[0].buffer.duplicate().apply { rewind() }
+                val uBuffer = planes[1].buffer.duplicate().apply { rewind() }
+                val vBuffer = planes[2].buffer.duplicate().apply { rewind() }
 
-        val bitmap = if (image.format == ImageFormat.YUV_420_888 || image.format == ImageFormat.NV21) {
-            val yBuffer = image.planes[0].buffer
-            val uBuffer = image.planes[1].buffer
-            val vBuffer = image.planes[2].buffer
+                val ySize = yBuffer.remaining()
+                val uSize = uBuffer.remaining()
+                val vSize = vBuffer.remaining()
 
-            val ySize = yBuffer.remaining()
-            val uSize = uBuffer.remaining()
-            val vSize = vBuffer.remaining()
+                val nv21 = ByteArray(ySize + uSize + vSize)
+                yBuffer.get(nv21, 0, ySize)
+                vBuffer.get(nv21, ySize, vSize)
+                uBuffer.get(nv21, ySize + vSize, uSize)
 
-            val nv21 = ByteArray(ySize + uSize + vSize)
-            yBuffer.get(nv21, 0, ySize)
-            vBuffer.get(nv21, ySize, vSize)
-            uBuffer.get(nv21, ySize + vSize, uSize)
+                val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+                val out = ByteArrayOutputStream()
+                yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 90, out)
+                val imageBytes = out.toByteArray()
+                val decoded = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size) ?: return null
 
-            val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
-            val out = ByteArrayOutputStream()
-            yuvImage.compressToJpeg(android.graphics.Rect(0, 0, image.width, image.height), 100, out)
-            val imageBytes = out.toByteArray()
-            BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-        } else {
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        } ?: return null
-
-        val matrix = Matrix()
-        matrix.postRotate(image.imageInfo.rotationDegrees.toFloat())
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                val rotationDegrees = image.imageInfo.rotationDegrees
+                if (rotationDegrees != 0) {
+                    val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+                    Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
+                } else {
+                    decoded
+                }
+            } catch (ex: Throwable) {
+                null
+            }
+        }
     }
 
-    fun preprocessBitmap(bitmap: Bitmap, inputSize: Int): Pair<ByteBuffer, FloatArray> {
-        val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
+    /**
+     * Ultralytics-Standard Letterbox Preprocessing (Preserves Aspect Ratio with 114 Gray Padding)
+     * Identical to PyTorch YOLO inference pipeline
+     */
+    fun letterboxBitmap(bitmap: Bitmap, inputSize: Int = 640): LetterboxResult {
+        val w = bitmap.width.toFloat()
+        val h = bitmap.height.toFloat()
+
+        val r = min(inputSize / w, inputSize / h)
+        val newUnpadW = (w * r).toInt()
+        val newUnpadH = (h * r).toInt()
+
+        val padX = (inputSize - newUnpadW) / 2f
+        val padY = (inputSize - newUnpadH) / 2f
+
+        val letterboxedBitmap = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(letterboxedBitmap)
+        canvas.drawColor(Color.rgb(114, 114, 114))
+
+        val resized = Bitmap.createScaledBitmap(bitmap, newUnpadW, newUnpadH, true)
+        canvas.drawBitmap(resized, padX, padY, Paint(Paint.FILTER_BITMAP_FLAG))
+
         val byteBuffer = ByteBuffer.allocateDirect(4 * inputSize * inputSize * 3)
         byteBuffer.order(ByteOrder.nativeOrder())
 
         val intValues = IntArray(inputSize * inputSize)
-        resized.getPixels(intValues, 0, resized.width, 0, 0, resized.width, resized.height)
+        letterboxedBitmap.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize)
 
         var pixel = 0
         for (i in 0 until inputSize) {
@@ -68,13 +110,17 @@ object YoloUtils {
             }
         }
 
-        val scaleFactors = floatArrayOf(
-            bitmap.width.toFloat() / inputSize.toFloat(),
-            bitmap.height.toFloat() / inputSize.toFloat()
+        return LetterboxResult(
+            byteBuffer = byteBuffer,
+            scale = r,
+            padX = padX,
+            padY = padY
         )
-        return Pair(byteBuffer, scaleFactors)
     }
 
+    /**
+     * Class-Agnostic Non-Maximum Suppression (Identical to Server)
+     */
     fun nonMaximumSuppression(
         detections: List<DetectionResult>,
         iouThreshold: Float = 0.45f

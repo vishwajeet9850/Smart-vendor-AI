@@ -1,5 +1,6 @@
 package com.smartvendor.ai.network.models
 
+import androidx.compose.runtime.Immutable
 import com.google.gson.annotations.SerializedName
 
 // ─── Store Profile ─────────────────────────────────────────────────────────────
@@ -131,6 +132,7 @@ data class MarketTrendInsightResponse(
     @SerializedName("badge_label") val badgeLabel: String = "🌐 Market Trend"
 )
 
+@Immutable
 data class MasterCatalogResponse(
     val id: String,
     val name: String,
@@ -148,4 +150,14 @@ data class AnalyticsSummaryResponse(
     @SerializedName("daily_revenue") val dailyRevenue: List<DailyRevenue>,
     @SerializedName("stock_recommendations") val stockRecommendations: List<StockRecommendationItemResponse> = emptyList(),
     @SerializedName("market_trends") val marketTrends: List<MarketTrendInsightResponse> = emptyList()
+)
+
+
+@Immutable
+data class VoiceTranscribeResponse(
+    val success: Boolean = false,
+    val transcript: String = "",
+    val language: String = "",
+    val error: String? = null,
+    val source: String = ""
 )

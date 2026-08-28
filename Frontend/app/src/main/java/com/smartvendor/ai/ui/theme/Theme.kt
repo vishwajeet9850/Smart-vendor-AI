@@ -1,44 +1,45 @@
 package com.smartvendor.ai.ui.theme
 
 import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val LightColorScheme = lightColorScheme(
-    primary = BluePrimary,
+    primary = RedPrimary,
     onPrimary = SurfaceLight,
-    primaryContainer = BlueLight,
-    onPrimaryContainer = BlueDark,
-    secondary = BlueDark,
+    primaryContainer = RedLight,
+    onPrimaryContainer = RedDark,
+    secondary = RedDark,
     onSecondary = SurfaceLight,
     background = BackgroundLight,
     onBackground = TextPrimaryLight,
     surface = SurfaceLight,
     onSurface = TextPrimaryLight,
-    surfaceVariant = BlueLight,
-    onSurfaceVariant = TextSecondaryLight
+    surfaceVariant = SurfaceVariantLight,
+    onSurfaceVariant = TextSecondaryLight,
+    outline = BorderLight
 )
 
 private val DarkColorScheme = darkColorScheme(
-    primary = BluePrimary,
+    primary = RedPrimary,
     onPrimary = SurfaceLight,
-    primaryContainer = BlueDark,
-    onPrimaryContainer = BlueLight,
-    secondary = BlueLight,
-    onSecondary = TextPrimaryDark,
+    primaryContainer = SurfaceVariantDark,
+    onPrimaryContainer = RedLight,
+    secondary = RedAccent,
+    onSecondary = BackgroundDark,
     background = BackgroundDark,
     onBackground = TextPrimaryDark,
     surface = SurfaceDark,
     onSurface = TextPrimaryDark,
-    surfaceVariant = SurfaceDark,
-    onSurfaceVariant = TextSecondaryDark
+    surfaceVariant = SurfaceVariantDark,
+    onSurfaceVariant = TextSecondaryDark,
+    outline = BorderDark
 )
 
 @Composable
@@ -53,7 +54,7 @@ fun SmartVendorAITheme(
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }
 

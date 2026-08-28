@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -31,15 +32,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smartvendor.ai.ai.DetectionOverlayView
 import com.smartvendor.ai.camera.CameraPreviewView
 import com.smartvendor.ai.model.Product
+import com.smartvendor.ai.ui.components.VoiceBillingSheet
 import com.smartvendor.ai.ui.theme.AccentGreen
 import com.smartvendor.ai.ui.theme.BluePrimary
+import com.smartvendor.ai.ui.theme.RedPrimary
 import com.smartvendor.ai.ui.theme.WarningYellow
 import com.smartvendor.ai.utils.PermissionUtils
 
@@ -90,11 +96,11 @@ fun ScanScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Scan / Add Items to Bill",
+                            text = "Smart Scanner & Bill",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = "Bill ID: ${billId.take(8)}...",
+                            text = "Bill #${billId.takeLast(6)}",
                             style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                         )
                     }
@@ -105,12 +111,16 @@ fun ScanScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { viewModel.openVoiceDialog() }) {
+                        Icon(Icons.Default.Mic, contentDescription = "Voice Billing", tint = RedPrimary)
+                    }
                     IconButton(onClick = { viewModel.openManualEntryDialog() }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Manually", tint = BluePrimary)
+                        Icon(Icons.Default.Add, contentDescription = "Add Manually", tint = RedPrimary)
                     }
                     Surface(
-                        color = BluePrimary.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(12.dp)
+                        color = RedPrimary.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.clickable { onNavigateToBilling(billId) }
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -119,7 +129,7 @@ fun ScanScreen(
                             Icon(
                                 imageVector = Icons.Outlined.ShoppingCart,
                                 contentDescription = null,
-                                tint = BluePrimary,
+                                tint = RedPrimary,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -127,7 +137,7 @@ fun ScanScreen(
                                 text = "${uiState.currentBill?.items?.sumOf { it.quantity } ?: 0} Items",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = BluePrimary
+                                    color = RedPrimary
                                 )
                             )
                         }
@@ -136,13 +146,42 @@ fun ScanScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { viewModel.openManualEntryDialog() },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Add Product Manually") },
-                containerColor = BluePrimary,
-                contentColor = Color.White
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FloatingActionButton(
+                    onClick = { viewModel.openVoiceDialog() },
+                    containerColor = RedPrimary,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = "Voice Bill")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Voice Bill", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                FloatingActionButton(
+                    onClick = { onNavigateToBilling(billId) },
+                    containerColor = AccentGreen,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Review Bill")
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Review Bill", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     ) { innerPadding ->
         Box(
@@ -151,7 +190,6 @@ fun ScanScreen(
                 .padding(innerPadding)
         ) {
             if (hasCameraPermission) {
-                // Live Camera View
                 CameraPreviewView(
                     onFrameAvailable = { imageProxy ->
                         viewModel.processFrame(imageProxy)
@@ -160,236 +198,89 @@ fun ScanScreen(
                     onCameraError = { }
                 )
 
-                // Bounding Box Overlay (Object Detection)
                 DetectionOverlayView(
                     detections = uiState.activeDetections
                 )
 
-                // Visual Barcode Scanner Target Box Overlay
                 if (uiState.isBarcodeActive) {
                     BarcodeTargetOverlay()
                 }
 
-                // Top AI / Barcode / OCR Status Banner & Mode Toggle Row
-                Column(
+                // Top Mode Toggle Row
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(12.dp)
                 ) {
-                    AiStatusBanner(
-                        status = uiState.aiStatus,
-                        isBarcodeActive = uiState.isBarcodeActive || uiState.isOcrActive
-                    )
-
-                    // Scanner Mode Chips: Barcode vs OCR Label Reader
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         FilterChip(
-                            selected = !uiState.isOcrActive,
-                            onClick = { viewModel.toggleScanMode(useOcr = false) },
-                            label = { Text("📷 AI Scanner", fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = BluePrimary,
-                                selectedLabelColor = Color.White
-                            )
+                            selected = !uiState.isBarcodeActive && !uiState.isOcrActive,
+                            onClick = {
+                                viewModel.toggleScanMode(useOcr = false)
+                            },
+                            label = { Text("Smart AI") }
                         )
-
+                        FilterChip(
+                            selected = uiState.isBarcodeActive,
+                            onClick = { viewModel.toggleBarcodeMode(!uiState.isBarcodeActive) },
+                            label = { Text("Barcode") }
+                        )
                         FilterChip(
                             selected = uiState.isOcrActive,
-                            onClick = { viewModel.toggleScanMode(useOcr = true) },
-                            label = { Text("📝 Label OCR", fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = BluePrimary,
-                                selectedLabelColor = Color.White
-                            )
+                            onClick = { viewModel.toggleScanMode(useOcr = !uiState.isOcrActive) },
+                            label = { Text("Price/OCR") }
                         )
                     }
                 }
 
-                // Bottom Content: Current Detected Product Card or Bill Bar
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(bottom = 80.dp, start = 16.dp, end = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    AnimatedVisibility(
-                        visible = uiState.detectedProduct != null || uiState.detectedProductsList.isNotEmpty(),
-                        enter = slideInVertically { it } + fadeIn(),
-                        exit = slideOutVertically { it } + fadeOut()
+                // Detected Product Preview Card (Bottom Center)
+                if (uiState.detectedProduct != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 80.dp, start = 16.dp, end = 16.dp)
                     ) {
-                        if (uiState.detectedProductsList.size > 1) {
-                            MultiProductDetectedCard(
-                                products = uiState.detectedProductsList,
-                                selectedProduct = uiState.detectedProduct ?: uiState.detectedProductsList.first(),
-                                selectedQuantity = uiState.selectedQuantity,
-                                onSelectProduct = { viewModel.selectDetectedProduct(it) },
-                                onRemoveProduct = { viewModel.removeDetectedProductFromList(it) },
-                                onIncrease = { viewModel.increaseQuantity() },
-                                onDecrease = { viewModel.decreaseQuantity() },
-                                onAddSingle = { viewModel.addProductToBill() },
-                                onAddAll = { viewModel.addAllDetectedProductsToBill() },
-                                onCancel = { viewModel.cancelDetection() }
-                            )
-                        } else {
-                            uiState.detectedProduct?.let { product ->
-                                DetectedProductCard(
-                                    product = product,
-                                    selectedQuantity = uiState.selectedQuantity,
-                                    onIncrease = { viewModel.increaseQuantity() },
-                                    onDecrease = { viewModel.decreaseQuantity() },
-                                    onAdd = { viewModel.addProductToBill() },
-                                    onCancel = { viewModel.cancelDetection() }
-                                )
-                            }
-                        }
-                    }
-
-                    // Live Auto-Added Feedback Pill with Instant Undo
-                    AnimatedVisibility(
-                        visible = uiState.lastAutoAddedProduct != null,
-                        enter = slideInVertically { it } + fadeIn(),
-                        exit = slideOutVertically { it } + fadeOut()
-                    ) {
-                        uiState.lastAutoAddedProduct?.let { product ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = AccentGreen.copy(alpha = 0.95f)),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                                        Column {
-                                            Text(
-                                                text = "+1 ${product.name}",
-                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White)
-                                            )
-                                            Text(
-                                                text = "₹${"%.2f".format(product.price)} added to bill",
-                                                style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.85f))
-                                            )
-                                        }
-                                    }
-
-                                    TextButton(
-                                        onClick = { viewModel.undoLastAutoAddedProduct() },
-                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
-                                    ) {
-                                        Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Undo", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Bottom Billing Bar
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Current Total",
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
-                                )
-                                Text(
-                                    text = "₹${"%.2f".format(uiState.currentBill?.grandTotal ?: 0.0)}",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                )
-                            }
-
-                            Button(
-                                onClick = {
-                                    val activeBillId = uiState.currentBill?.billId ?: billId
-                                    if (activeBillId.isNotBlank()) {
-                                        onNavigateToBilling(activeBillId)
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("View Bill")
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
-                            }
-                        }
+                        DetectedProductCard(
+                            product = uiState.detectedProduct!!,
+                            selectedQuantity = uiState.selectedQuantity,
+                            onIncrease = { viewModel.increaseQuantity() },
+                            onDecrease = { viewModel.decreaseQuantity() },
+                            onAdd = { viewModel.addProductToBill() },
+                            onCancel = { viewModel.cancelDetection() }
+                        )
                     }
                 }
             } else {
-                // Permission Denied View
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Camera,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = Color.Gray
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Camera Permission Required",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "SmartVendor AI needs camera access to scan barcodes live or add items.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.Gray
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                            Text("Grant Camera Permission")
-                        }
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                        Text("Grant Camera Permission")
                     }
                 }
             }
 
+            // Voice Billing Modal
+            if (uiState.showVoiceDialog) {
+                VoiceBillingSheet(
+                    onDismiss = { viewModel.closeVoiceDialog() },
+                    onAddItemsToBill = { voiceItems ->
+                        viewModel.addVoiceItemsToBill(voiceItems)
+                    }
+                )
+            }
+
+            // Manual Product Entry Dialog
             if (uiState.showManualEntryDialog) {
-                ManualProductEntryDialog(
-                    initialName = uiState.ocrPrefilledName,
-                    initialPrice = uiState.ocrPrefilledPrice,
-                    inventoryProducts = uiState.inventoryProducts,
-                    onDismiss = { viewModel.dismissManualEntryDialog() },
-                    onAddExistingProduct = { product, qty ->
-                        viewModel.addExistingProductToBill(product, qty)
-                    },
-                    onSaveNewProduct = { name, price, stock, cat, barcode, qty ->
-                        viewModel.saveManualProduct(name, price, stock, cat, barcode, qty)
+                ManualEntryDialog(
+                    prefilledName = uiState.ocrPrefilledName,
+                    prefilledPrice = uiState.ocrPrefilledPrice,
+                    onDismiss = { viewModel.closeManualEntryDialog() },
+                    onConfirm = { name, price, quantity ->
+                        viewModel.addManualProductToBill(name, price, quantity)
                     }
                 )
             }
@@ -399,92 +290,19 @@ fun ScanScreen(
 
 @Composable
 fun BarcodeTargetOverlay() {
-    val infiniteTransition = rememberInfiniteTransition(label = "laser")
-    val laserYRatio by infiniteTransition.animateFloat(
-        initialValue = 0.1f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "laserLine"
-    )
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val boxWidth = size.width * 0.7f
+        val boxHeight = size.height * 0.25f
+        val left = (size.width - boxWidth) / 2
+        val top = (size.height - boxHeight) / 2
 
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(width = 260.dp, height = 170.dp)
-                    .background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
-                    .border(2.dp, BluePrimary.copy(alpha = 0.8f), RoundedCornerShape(20.dp))
-            ) {
-                // Red scanning laser line
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val laserY = size.height * laserYRatio
-                    drawLine(
-                        color = Color.Red,
-                        start = Offset(x = 10.dp.toPx(), y = laserY),
-                        end = Offset(x = size.width - 10.dp.toPx(), y = laserY),
-                        strokeWidth = 3.dp.toPx()
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Surface(
-                color = Color.Black.copy(alpha = 0.65f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    text = "Point camera barcode inside box",
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = Color.White,
-                        fontWeight = FontWeight.Medium
-                    )
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun AiStatusBanner(
-    status: String,
-    isBarcodeActive: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        color = if (isBarcodeActive) BluePrimary else AccentGreen,
-        shape = RoundedCornerShape(20.dp),
-        shadowElevation = 6.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(Color.White, shape = CircleShape)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (isBarcodeActive) "📷 Barcode Scanner Active" else "🤖 AI Object Detection Active",
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            )
-        }
+        drawRoundRect(
+            color = Color.Red,
+            topLeft = Offset(left, top),
+            size = Size(boxWidth, boxHeight),
+            cornerRadius = CornerRadius(16f, 16f),
+            style = Stroke(width = 3.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 10f), 0f))
+        )
     }
 }
 
@@ -499,12 +317,14 @@ fun DetectedProductCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
@@ -515,18 +335,21 @@ fun DetectedProductCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = product.name,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "Category: ${product.category}",
                         style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                     )
                 }
+
                 Text(
-                    text = "₹${"%.2f".format(product.price)}",
-                    style = MaterialTheme.typography.headlineSmall.copy(
+                    text = "₹${product.price.toInt()}",
+                    style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
-                        color = BluePrimary
+                        color = RedPrimary
                     )
                 )
             }
@@ -536,32 +359,17 @@ fun DetectedProductCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    color = if (product.stock > 0) AccentGreen.copy(alpha = 0.15f) else Color.Red.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = if (product.stock > 0) "In Stock (${product.stock})" else "Out of Stock",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = if (product.stock > 0) AccentGreen else Color.Red,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                }
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IconButton(
                         onClick = onDecrease,
-                        enabled = selectedQuantity > 1,
                         modifier = Modifier
                             .size(36.dp)
                             .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
                     ) {
-                        Icon(Icons.Default.Remove, contentDescription = "Decrease")
+                        Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
                     }
 
                     Text(
@@ -571,49 +379,28 @@ fun DetectedProductCard(
 
                     IconButton(
                         onClick = onIncrease,
-                        enabled = true,
                         modifier = Modifier
                             .size(36.dp)
                             .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Increase")
+                        Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
                     }
                 }
-            }
 
-            if (selectedQuantity > product.stock) {
-                Surface(
-                    color = WarningYellow.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "⚠️ Exceeds app stock (${product.stock} listed) — billing allowed",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = WarningYellow,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                }
-            }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onCancel) {
+                        Text("Ignore", color = Color.Gray)
+                    }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onCancel,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Cancel")
-                }
-                Button(
-                    onClick = onAdd,
-                    enabled = true,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Add to Bill")
+                    Button(
+                        onClick = onAdd,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add to Bill")
+                    }
                 }
             }
         }
@@ -621,510 +408,64 @@ fun DetectedProductCard(
 }
 
 @Composable
-fun MultiProductDetectedCard(
-    products: List<Product>,
-    selectedProduct: Product,
-    selectedQuantity: Int,
-    onSelectProduct: (Product) -> Unit,
-    onRemoveProduct: (Product) -> Unit,
-    onIncrease: () -> Unit,
-    onDecrease: () -> Unit,
-    onAddSingle: () -> Unit,
-    onAddAll: () -> Unit,
-    onCancel: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Multi-Detection Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "🎯 ${products.size} Products in Frame",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-                Surface(
-                    color = BluePrimary.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = "Total ₹${"%.2f".format(products.sumOf { it.price })}",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = BluePrimary
-                        )
-                    )
-                }
-            }
-
-            // Horizontal Chips of all detected products with instant 'X' remove button
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(products) { item ->
-                    val isSelected = (item.id == selectedProduct.id)
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onSelectProduct(item) },
-                        label = {
-                            Text(
-                                text = "${item.name} • ₹${item.price.toInt()}",
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        trailingIcon = {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Remove ${item.name}",
-                                tint = if (isSelected) Color.White else Color.Gray,
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .clickable { onRemoveProduct(item) }
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = BluePrimary,
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                }
-            }
-
-            // Focused Product Card Details
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = selectedProduct.name,
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "Stock: ${selectedProduct.stock} available",
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
-                            )
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "₹${"%.2f".format(selectedProduct.price)}",
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = BluePrimary
-                                )
-                            )
-                            IconButton(
-                                onClick = { onRemoveProduct(selectedProduct) },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.DeleteOutline,
-                                    contentDescription = "Remove item",
-                                    tint = Color.Red.copy(alpha = 0.8f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // Quantity controls for focused item
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Quantity:",
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
-                        )
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            IconButton(
-                                onClick = onDecrease,
-                                enabled = selectedQuantity > 1,
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
-                            ) {
-                                Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
-                            }
-
-                            Text(
-                                text = "$selectedQuantity",
-                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
-                            )
-
-                            IconButton(
-                                onClick = onIncrease,
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Action Buttons: Cancel, Add This, Add All
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onCancel,
-                    modifier = Modifier.weight(0.7f)
-                ) {
-                    Text("Cancel")
-                }
-
-                Button(
-                    onClick = onAddAll,
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-                    modifier = Modifier.weight(1.3f)
-                ) {
-                    Icon(Icons.Default.AddShoppingCart, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Add All (${products.size})", fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ManualProductEntryDialog(
-    initialName: String = "",
-    initialPrice: String = "",
-    inventoryProducts: List<Product> = emptyList(),
+fun ManualEntryDialog(
+    prefilledName: String,
+    prefilledPrice: String,
     onDismiss: () -> Unit,
-    onAddExistingProduct: (Product, Int) -> Unit,
-    onSaveNewProduct: (String, Double, Int, String, String, Int) -> Unit
+    onConfirm: (String, Double, Int) -> Unit
 ) {
-    var name by remember(initialName) { mutableStateOf(initialName) }
-    var selectedProduct by remember { mutableStateOf<Product?>(null) }
-
-    var price by remember(initialPrice) { mutableStateOf(initialPrice) }
-    var stock by remember { mutableStateOf("10") }
-    var category by remember { mutableStateOf("General") }
-    var barcode by remember { mutableStateOf("") }
-
-    var quantityToSell by remember { mutableStateOf(1) }
-
-    // Live search suggestions as user types name
-    val suggestions = remember(name, selectedProduct, inventoryProducts) {
-        if (name.isBlank() || selectedProduct != null) {
-            emptyList()
-        } else {
-            inventoryProducts.filter {
-                it.name.contains(name, ignoreCase = true)
-            }.take(4)
-        }
-    }
-
-    // Auto select exact match
-    LaunchedEffect(name) {
-        if (selectedProduct == null && name.isNotBlank()) {
-            val exact = inventoryProducts.firstOrNull { it.name.equals(name, ignoreCase = true) }
-            if (exact != null) {
-                selectedProduct = exact
-            }
-        }
-    }
+    var name by remember { mutableStateOf(prefilledName) }
+    var price by remember { mutableStateOf(prefilledPrice) }
+    var quantity by remember { mutableStateOf("1") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = if (selectedProduct != null) "Select Quantity to Sell" else "Manual Product Entry",
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleMedium
-            )
-        },
+        title = { Text("Manual Item Entry", fontWeight = FontWeight.Bold) },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (selectedProduct != null) {
-                    val prod = selectedProduct!!
-                    // Existing Inventory Product Found Banner Card
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    color = Color(0xFF4CAF50),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Text(
-                                        text = "INVENTORY MATCH",
-                                        color = Color.White,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Product Name") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                                TextButton(
-                                    onClick = {
-                                        selectedProduct = null
-                                        name = ""
-                                    }
-                                ) {
-                                    Text("Change Item", fontSize = 12.sp)
-                                }
-                            }
+                OutlinedTextField(
+                    value = price,
+                    onValueChange = { price = it },
+                    label = { Text("Price (₹)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = prod.name,
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Price: ₹${prod.price}  •  Stock Available: ${prod.stock}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Quantity selector (- 1 +)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Quantity to Sell:",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            IconButton(
-                                onClick = { if (quantityToSell > 1) quantityToSell-- },
-                                enabled = quantityToSell > 1,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                            ) {
-                                Icon(Icons.Default.Remove, contentDescription = "Decrease")
-                            }
-
-                            Text(
-                                text = "$quantityToSell",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                            )
-
-                            IconButton(
-                                onClick = { quantityToSell++ },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = "Increase")
-                            }
-                        }
-                    }
-
-                    if (quantityToSell > prod.stock) {
-                        Surface(
-                            color = WarningYellow.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "⚠️ Selling $quantityToSell units exceeds listed stock (${prod.stock}). Billing allowed.",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = WarningYellow,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
-                        }
-                    }
-                } else {
-                    // Search & New Product Form Mode
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = {
-                                name = it
-                                selectedProduct = null
-                            },
-                            label = { Text("Product Name") },
-                            placeholder = { Text("Type to search inventory...") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        // Autocomplete Suggestions List
-                        if (suggestions.isNotEmpty()) {
-                            Card(
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(4.dp)) {
-                                    Text(
-                                        text = "Matching Store Items:",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.Gray,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                    suggestions.forEach { item ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    selectedProduct = item
-                                                    name = item.name
-                                                }
-                                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = item.name,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = "₹${item.price} (Stock: ${item.stock})",
-                                                fontSize = 12.sp,
-                                                color = BluePrimary,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        OutlinedTextField(
-                            value = price,
-                            onValueChange = { price = it },
-                            label = { Text("Price (₹)") },
-                            placeholder = { Text("e.g. 50.00") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = stock,
-                            onValueChange = { stock = it },
-                            label = { Text("Available Stock Quantity") },
-                            placeholder = { Text("e.g. 20") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        // Quantity to Sell row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Quantity to Sell:",
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                IconButton(
-                                    onClick = { if (quantityToSell > 1) quantityToSell-- },
-                                    enabled = quantityToSell > 1,
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                                ) {
-                                    Icon(Icons.Default.Remove, contentDescription = "Decrease")
-                                }
-
-                                Text(
-                                    text = "$quantityToSell",
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                )
-
-                                IconButton(
-                                    onClick = { quantityToSell++ },
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Increase")
-                                }
-                            }
-                        }
-                    }
-                }
+                OutlinedTextField(
+                    value = quantity,
+                    onValueChange = { quantity = it },
+                    label = { Text("Quantity") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (selectedProduct != null) {
-                        onAddExistingProduct(selectedProduct!!, quantityToSell)
-                    } else {
-                        val priceVal = price.toDoubleOrNull() ?: 0.0
-                        val stockVal = stock.toIntOrNull() ?: 10
-                        if (name.isNotBlank() && priceVal > 0) {
-                            onSaveNewProduct(name, priceVal, stockVal, category, barcode, quantityToSell)
-                        }
+                    val p = price.toDoubleOrNull() ?: 0.0
+                    val q = quantity.toIntOrNull() ?: 1
+                    if (name.isNotBlank() && p > 0) {
+                        onConfirm(name, p, q)
                     }
-                }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
             ) {
-                Text(
-                    text = if (selectedProduct != null) "Add $quantityToSell to Bill" else "Save & Add to Bill"
-                )
+                Text("Add to Bill")
             }
         },
         dismissButton = {

@@ -91,7 +91,7 @@ fun ProductDetailScreen(
                             DetailRow("GST Tax Rate", "${p.gst}%")
                             DetailRow("Current Stock", "${p.stock} units")
                             DetailRow("Barcode", p.barcode.ifBlank { "N/A" })
-                            DetailRow("YOLO Class ID", "${p.classId}")
+                            DetailRow("Item Code / Class", "${p.classId}")
                             DetailRow("Created Date", formatDate(p.createdAt))
                             DetailRow("Last Updated", formatDate(p.updatedAt))
                         }

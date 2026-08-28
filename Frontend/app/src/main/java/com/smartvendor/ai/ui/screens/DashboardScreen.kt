@@ -1,6 +1,7 @@
 package com.smartvendor.ai.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +28,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smartvendor.ai.ui.theme.BlueDark
 import com.smartvendor.ai.ui.theme.BluePrimary
+import com.smartvendor.ai.ui.theme.AccentGreen
+import com.smartvendor.ai.ui.theme.DangerRed
+import com.smartvendor.ai.ui.theme.ElectricCyan
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +90,76 @@ fun DashboardScreen(
                         ),
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
+                }
+
+                // Voice Billing Quick Card
+                item {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.startOrResumeNewBill { billId ->
+                                    onNavigateToScan(billId)
+                                }
+                            },
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.5.dp, Color(0xFFD32F2F).copy(alpha = 0.3f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .background(Color(0xFFD32F2F).copy(alpha = 0.12f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.Mic,
+                                        contentDescription = null,
+                                        tint = Color(0xFFD32F2F),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("Voice Billing", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                                        Surface(
+                                            color = Color(0xFFD32F2F).copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "मराठी / हिंदी",
+                                                color = Color(0xFFD32F2F),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        "Speak items with quantity to build bill instantly",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = Color(0xFFD32F2F)
+                            )
+                        }
+                    }
                 }
 
                 item {
@@ -177,8 +252,9 @@ fun DashboardTopBar(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp,
-        shadowElevation = 4.dp
+        tonalElevation = 1.dp,
+        shadowElevation = 2.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
     ) {
         Row(
             modifier = Modifier
@@ -189,12 +265,41 @@ fun DashboardTopBar(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Welcome,",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Welcome,",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     )
-                )
+                    Surface(
+                        color = AccentGreen.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(AccentGreen, CircleShape)
+                            )
+                            Text(
+                                text = "Smart Scanner Active",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = AccentGreen,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                )
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = userName,
                     style = MaterialTheme.typography.titleLarge.copy(
@@ -230,7 +335,7 @@ fun DashboardTopBar(
                         BadgedBox(
                             badge = {
                                 Badge(
-                                    containerColor = Color(0xFFD32F2F),
+                                    containerColor = DangerRed,
                                     contentColor = Color.White
                                 ) {
                                     Text("$urgentAlertCount", fontWeight = FontWeight.Bold)
@@ -240,7 +345,7 @@ fun DashboardTopBar(
                             Icon(
                                 imageVector = Icons.Filled.NotificationsActive,
                                 contentDescription = "Urgent Stock Alerts ($urgentAlertCount)",
-                                tint = Color(0xFFD32F2F)
+                                tint = DangerRed
                             )
                         }
                     } else {
@@ -264,7 +369,7 @@ fun DashboardTopBar(
                         imageVector = Icons.Filled.Person,
                         contentDescription = "Profile",
                         tint = Color.White,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -283,17 +388,13 @@ fun NewBillCard(
             .fillMaxWidth()
             .clickable(enabled = !isLoading, onClick = onClick),
         shape = RoundedCornerShape(24.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Box(
             modifier = Modifier
-                .background(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(BluePrimary, BlueDark)
-                    )
-                )
-                .padding(24.dp)
+                .background(BluePrimary)
+                .padding(22.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -317,50 +418,83 @@ fun NewBillCard(
                             modifier = Modifier.size(30.dp)
                         )
                     }
+
+                    Surface(
+                        color = Color.White.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "AI Vision Scanner",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = "Start New Bill",
-                    style = MaterialTheme.typography.headlineMedium.copy(
+                    text = "Start Live Scan & Bill",
+                    style = MaterialTheme.typography.headlineSmall.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 )
 
                 Text(
-                    text = "Point camera at products for automatic YOLO AI detection & live billing.",
+                    text = "Scan items using camera, barcode, or direct search for instant kirana billing.",
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        color = Color.White.copy(alpha = 0.85f)
+                        color = Color.White.copy(alpha = 0.9f),
+                        lineHeight = 20.sp
                     )
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text(
-                            text = "Open Camera Scanner",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = BluePrimary,
+                                strokeWidth = 2.dp
                             )
-                        )
-                        Icon(
-                            imageVector = Icons.Default.ArrowForward,
-                            contentDescription = null,
-                            tint = Color.White
-                        )
+                        } else {
+                            Text(
+                                text = "Open Camera Scanner ⚡",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = BluePrimary
+                                )
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ArrowForward,
+                                contentDescription = null,
+                                tint = BluePrimary
+                            )
+                        }
                     }
                 }
             }
@@ -379,11 +513,12 @@ fun DashboardActionCard(
 ) {
     Card(
         modifier = modifier
-            .height(140.dp)
+            .height(144.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier
@@ -393,8 +528,8 @@ fun DashboardActionCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .background(accentColor.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp)),
+                    .size(44.dp)
+                    .background(accentColor.copy(alpha = 0.12f), shape = RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -428,6 +563,7 @@ fun DashboardActionCard(
         }
     }
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
