@@ -20,14 +20,14 @@ class CameraManager(
     private var cameraProvider: ProcessCameraProvider? = null
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private var lastProcessedTimestamp = 0L
-    private val frameIntervalMs = 150L // ~6-7 FPS target
+    private val frameIntervalMs = 160L
 
     fun startCamera(onSuccess: () -> Unit, onError: (Throwable) -> Unit) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             try {
                 cameraProvider = cameraProviderFuture.get()
-                bindCameraUseCases(onSuccess)
+                bindCameraUseCases(onSuccess, onError)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to initialize CameraX provider", e)
                 onError(e)
@@ -35,35 +35,38 @@ class CameraManager(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    private fun bindCameraUseCases(onSuccess: () -> Unit) {
+    private fun bindCameraUseCases(onSuccess: () -> Unit, onError: (Throwable) -> Unit) {
         val provider = cameraProvider ?: return
 
-        val preview = Preview.Builder()
-            .setTargetResolution(Size(1280, 720))
-            .build()
-            .also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
+        try {
+            val preview = Preview.Builder()
+                .build()
+                .also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
 
-        val imageAnalysis = ImageAnalysis.Builder()
-            .setTargetResolution(Size(640, 640))
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .build()
-            .also { analysis ->
-                analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                    val currentTime = System.currentTimeMillis()
-                    if (currentTime - lastProcessedTimestamp >= frameIntervalMs) {
-                        lastProcessedTimestamp = currentTime
-                        onFrameAvailable(imageProxy)
-                    } else {
-                        imageProxy.close()
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                .build()
+                .also { analysis ->
+                    analysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                        try {
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastProcessedTimestamp >= frameIntervalMs) {
+                                lastProcessedTimestamp = currentTime
+                                onFrameAvailable(imageProxy)
+                            } else {
+                                imageProxy.close()
+                            }
+                        } catch (e: Throwable) {
+                            try { imageProxy.close() } catch (_: Exception) {}
+                        }
                     }
                 }
-            }
 
-        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-        try {
             provider.unbindAll()
             provider.bindToLifecycle(
                 lifecycleOwner,
@@ -74,6 +77,7 @@ class CameraManager(
             onSuccess()
         } catch (e: Exception) {
             Log.e(TAG, "Use case binding failed", e)
+            onError(e)
         }
     }
 

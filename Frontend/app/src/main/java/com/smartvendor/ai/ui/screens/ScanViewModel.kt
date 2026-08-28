@@ -2,13 +2,13 @@ package com.smartvendor.ai.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartvendor.ai.ai.YoloDetectionRepository
+import com.smartvendor.ai.ai.YoloUtils
 import com.smartvendor.ai.barcode.BarcodeScannerManager
 import com.smartvendor.ai.model.Bill
 import com.smartvendor.ai.model.BillItem
@@ -69,7 +69,7 @@ class ScanViewModel(
     private val ignoredTimestampMap = ConcurrentHashMap<String, Long>()
     private var lastGlobalAddTimestamp: Long = 0L
 
-    // In-Flight lock to prevent parallel network requests from adding the same product twice
+    // In-Flight lock to prevent parallel network requests
     private val isFrameProcessingLock = AtomicBoolean(false)
 
     val confidenceThreshold = 0.60f
@@ -216,77 +216,78 @@ class ScanViewModel(
         val now = System.currentTimeMillis()
 
         if (_uiState.value.detectedProduct != null) {
-            imageProxy.close()
+            try { imageProxy.close() } catch (_: Throwable) {}
             return
         }
 
         if (now - lastFrameProcessTime < 180L || !isFrameProcessingLock.compareAndSet(false, true)) {
-            imageProxy.close()
+            try { imageProxy.close() } catch (_: Throwable) {}
             return
         }
         lastFrameProcessTime = now
 
-        // Convert imageProxy to Bitmap safely and close imageProxy immediately
-        val bitmap = imageProxyToRotatedBitmap(imageProxy)
-        try { imageProxy.close() } catch (_: Exception) {}
-
-        if (bitmap == null) {
-            isFrameProcessingLock.set(false)
-            return
-        }
-
         viewModelScope.launch {
-            _uiState.update { it.copy(isProcessingFrame = true) }
+            try {
+                // Convert ImageProxy to Bitmap using robust fallback converter and close proxy immediately
+                val bitmap = YoloUtils.imageProxyToBitmap(imageProxy)
+                try { imageProxy.close() } catch (_: Throwable) {}
 
-            // 1. Dedicated OCR Mode (Manual confirm card)
-            if (_uiState.value.isOcrActive) {
+                if (bitmap == null) {
+                    isFrameProcessingLock.set(false)
+                    return@launch
+                }
+
+                _uiState.update { it.copy(isProcessingFrame = true) }
+
+                // 1. Dedicated OCR Mode
+                if (_uiState.value.isOcrActive) {
+                    ocrScanner.processBitmap(
+                        bitmap = bitmap,
+                        onSuccess = { ocrResult ->
+                            isFrameProcessingLock.set(false)
+                            handleDedicatedOcr(ocrResult)
+                        },
+                        onNotFound = {
+                            isFrameProcessingLock.set(false)
+                            _uiState.update { it.copy(isProcessingFrame = false) }
+                        },
+                        onError = {
+                            isFrameProcessingLock.set(false)
+                            _uiState.update { it.copy(isProcessingFrame = false) }
+                        }
+                    )
+                    return@launch
+                }
+
+                // 2. Dedicated Barcode Mode
+                if (_uiState.value.isBarcodeActive) {
+                    isFrameProcessingLock.set(false)
+                    _uiState.update { it.copy(isProcessingFrame = false) }
+                    return@launch
+                }
+
+                // 3. Smart Hybrid AI Scanner (OCR Brand Text + YOLO Visual BBox Verification)
                 ocrScanner.processBitmap(
                     bitmap = bitmap,
                     onSuccess = { ocrResult ->
-                        isFrameProcessingLock.set(false)
-                        handleDedicatedOcr(ocrResult)
+                        handleSmartHybridScan(bitmap, ocrResult)
                     },
                     onNotFound = {
-                        isFrameProcessingLock.set(false)
-                        _uiState.update { it.copy(isProcessingFrame = false) }
+                        handleSmartHybridScan(bitmap, null)
                     },
                     onError = {
-                        isFrameProcessingLock.set(false)
-                        _uiState.update { it.copy(isProcessingFrame = false) }
+                        handleSmartHybridScan(bitmap, null)
                     }
                 )
-                return@launch
-            }
-
-            // 2. Dedicated Barcode Mode
-            if (_uiState.value.isBarcodeActive) {
-                // Handled via barcode scanner if needed, or OCR fallback
+            } catch (e: Throwable) {
+                Log.e("ScanViewModel", "Unhandled exception in processFrame", e)
+                try { imageProxy.close() } catch (_: Throwable) {}
                 isFrameProcessingLock.set(false)
                 _uiState.update { it.copy(isProcessingFrame = false) }
-                return@launch
             }
-
-            // 3. SMART HYBRID AI SCANNER: Runs OCR Text Extraction + YOLO Multimodal Cross-Verification
-            ocrScanner.processBitmap(
-                bitmap = bitmap,
-                onSuccess = { ocrResult ->
-                    handleSmartHybridScan(bitmap, ocrResult)
-                },
-                onNotFound = {
-                    // If no clear text, run pure YOLO detection
-                    handleSmartHybridScan(bitmap, null)
-                },
-                onError = {
-                    handleSmartHybridScan(bitmap, null)
-                }
-            )
         }
     }
 
-    /**
-     * Smart Hybrid Scan: Combines OCR text recognition with YOLO visual bounding box detection.
-     * Prevents false guessing (e.g. BRU coffee will be recognized by OCR and NOT misidentified as Haldiram).
-     */
     private fun handleSmartHybridScan(bitmap: Bitmap, ocrResult: OcrResult?) {
         viewModelScope.launch {
             try {
@@ -353,12 +354,11 @@ class ScanViewModel(
 
                     val newProductsToAdd = mutableListOf<Product>()
                     val scannedTextLower = ocrResult?.fullScannedText?.lowercase() ?: ""
-                    val brandTokens = ocrResult?.dominantBrandKeywords ?: emptyList()
 
                     for (det in detections) {
                         val labelClean = det.label.lowercase().trim()
 
-                        // Anti-Hallucination: If OCR read contradictory text (e.g. YOLO guessed haldiram but text is 'bru' or 'coffee' or 'nescafe'), discard YOLO guess!
+                        // Anti-Hallucination: If OCR read contradictory text, discard YOLO guess!
                         if (labelClean == "haldiram_soya_stick" && (scannedTextLower.contains("bru") || scannedTextLower.contains("coffee") || scannedTextLower.contains("nescafe"))) {
                             continue
                         }
@@ -702,22 +702,6 @@ class ScanViewModel(
                     aiStatus = "Added $quantity x $name"
                 )
             }
-        }
-    }
-
-    private fun imageProxyToRotatedBitmap(image: ImageProxy): Bitmap? {
-        return try {
-            val rawBitmap = image.toBitmap()
-            val rotationDegrees = image.imageInfo.rotationDegrees
-            if (rotationDegrees != 0) {
-                val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
-                Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
-            } else {
-                rawBitmap
-            }
-        } catch (e: Exception) {
-            Log.e("ScanViewModel", "Failed converting ImageProxy to Bitmap", e)
-            null
         }
     }
 }
