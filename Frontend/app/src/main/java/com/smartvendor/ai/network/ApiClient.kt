@@ -2,6 +2,7 @@ package com.smartvendor.ai.network
 
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.smartvendor.ai.BuildConfig
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
 import okhttp3.Interceptor
@@ -13,8 +14,6 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
-    // Current active Laptop IP address on Wi-Fi network: 10.88.240.180
-    // (Hotspot IP: 192.168.137.1, Emulator: 10.0.2.2)
     private const val BASE_URL = "http://10.88.240.180:8000/"
 
     private val firebaseTokenInterceptor = Interceptor { chain ->
@@ -42,8 +41,13 @@ object ApiClient {
         chain.proceed(newRequest)
     }
 
+    // Security Hardening: Only log HTTP body payloads in debug builds
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        level = if (BuildConfig.DEBUG) {
+            HttpLoggingInterceptor.Level.BODY
+        } else {
+            HttpLoggingInterceptor.Level.NONE
+        }
     }
 
     private val okHttpClient = OkHttpClient.Builder()

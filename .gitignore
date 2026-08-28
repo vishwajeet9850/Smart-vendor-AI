@@ -17,10 +17,12 @@ AI/datasets/
 .vscode/
 .idea/
 
-# Credentials & Secrets (CRITICAL SECURITY)
+# Targeted Credentials & Secrets (CRITICAL SECURITY)
 serviceAccountKey.json
 **/serviceAccountKey.json
-*.json
+*serviceAccount*.json
+*credential*.json
+*secret*.json
 *.pem
 *.key
 .env

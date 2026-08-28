@@ -17,11 +17,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Secure CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://10.88.240.180:8000"
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -42,51 +48,10 @@ def root():
         "status": "ok",
         "app": "SmartVendor AI API",
         "version": "1.0.0",
-        "docs": "/docs",
-        "view_data": "/view-data"
+        "docs": "/docs"
     }
 
 
 @app.get("/health", tags=["Health"])
 def health():
     return {"status": "healthy"}
-
-
-@app.get("/view-data", tags=["Database Inspection"])
-def view_data(db: Session = Depends(get_db)):
-    products_list = db.query(models.Product).all()
-    bills_list = db.query(models.Bill).all()
-
-    return {
-        "total_inventory_items": len(products_list),
-        "total_completed_bills": len(bills_list),
-        "inventory_products": [
-            {
-                "id": p.id,
-                "name": p.name,
-                "category": p.category,
-                "price": p.price,
-                "stock": p.stock,
-                "barcode": p.barcode
-            }
-            for p in products_list
-        ],
-        "completed_bills": [
-            {
-                "bill_id": b.id,
-                "total_amount": b.total_amount,
-                "payment_mode": b.payment_mode,
-                "created_at": str(b.created_at),
-                "items": [
-                    {
-                        "product_name": item.product_name,
-                        "quantity": item.quantity,
-                        "unit_price": item.unit_price,
-                        "total_price": item.total_price
-                    }
-                    for item in b.items
-                ]
-            }
-            for b in bills_list
-        ]
-    }

@@ -18,14 +18,29 @@ def create_bill(
     db: Session = Depends(get_db)
 ):
     """
-    Create a bill and atomically deduct stock from each existing product.
-    Safe for both catalog products and ad-hoc manual items.
+    Authoritative Bill Creation:
+    1. Validates stock availability for every catalog item (rejects with 400 if stock < requested).
+    2. Authoritatively calculates unit prices, item line totals, subtotal, tax, and grand total on the backend.
+    3. Atomically updates inventory stock.
     """
-    bill_id = str(uuid.uuid4())
+    if not body.items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot create an empty bill"
+        )
 
-    # Map item -> valid_product or None
-    validated_items = []
+    bill_id = str(uuid.uuid4())
+    bill_items_to_create = []
+    subtotal = 0.0
+
+    # Step 1: Validate stock & compute authoritative pricing
     for item in body.items:
+        if item.quantity <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item quantity must be greater than 0. Received: {item.quantity}"
+            )
+
         product = None
         if item.product_id:
             product = db.query(models.Product).filter(
@@ -33,37 +48,59 @@ def create_bill(
                 models.Product.user_id == user_id
             ).first()
 
-        validated_items.append((item, product))
+            if not product:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Product with ID '{item.product_id}' not found in your inventory"
+                )
 
-    # Create bill record
-    bill = models.Bill(
-        id=bill_id,
-        user_id=user_id,
-        total_amount=body.total_amount,
-        tax_amount=body.tax_amount,
-        payment_mode=body.payment_mode
-    )
-    db.add(bill)
+            # Strict stock validation: reject if stock is insufficient
+            if product.stock < item.quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Insufficient stock for product '{product.name}'. Available: {product.stock}, requested: {item.quantity}"
+                )
 
-    # Create bill items and update stock for catalog items
-    for item, product in validated_items:
+            unit_price = float(product.price)
+            product_name = product.name
+        else:
+            # Manual / ad-hoc item without product_id
+            unit_price = max(0.0, float(item.unit_price or 0.0))
+            product_name = item.product_name.strip() or "Custom Item"
+
+        line_total = round(unit_price * item.quantity, 2)
+        subtotal += line_total
+
         bill_item = models.BillItem(
             id=str(uuid.uuid4()),
             bill_id=bill_id,
             product_id=product.id if product else None,
-            product_name=item.product_name,
+            product_name=product_name,
             quantity=item.quantity,
-            unit_price=item.unit_price,
-            total_price=item.total_price
+            unit_price=unit_price,
+            total_price=line_total
         )
-        db.add(bill_item)
+        bill_items_to_create.append((bill_item, product, item.quantity))
 
+    # Authoritative financial totals
+    subtotal = round(subtotal, 2)
+    tax_amount = round(subtotal * 0.05, 2)
+    total_amount = round(subtotal + tax_amount, 2)
+
+    bill = models.Bill(
+        id=bill_id,
+        user_id=user_id,
+        total_amount=total_amount,
+        tax_amount=tax_amount,
+        payment_mode=body.payment_mode or "cash"
+    )
+    db.add(bill)
+
+    # Step 2: Add bill items & deduct stock atomically
+    for bill_item, product, qty in bill_items_to_create:
+        db.add(bill_item)
         if product:
-            new_stock = max(0, product.stock - item.quantity)
-            db.query(models.Product).filter(
-                models.Product.id == product.id,
-                models.Product.user_id == user_id
-            ).update({models.Product.stock: new_stock})
+            product.stock = product.stock - qty
 
     db.commit()
     db.refresh(bill)
@@ -77,13 +114,13 @@ def list_bills(
     offset: int = 0,
     db: Session = Depends(get_db)
 ):
-    user_bill_count = db.query(func.count(models.Bill.id)).filter(models.Bill.user_id == user_id).scalar() or 0
-    if user_bill_count > 0:
-        bills = db.query(models.Bill).filter(
-            models.Bill.user_id == user_id
-        ).order_by(models.Bill.created_at.desc()).offset(offset).limit(limit).all()
-    else:
-        bills = db.query(models.Bill).order_by(models.Bill.created_at.desc()).offset(offset).limit(limit).all()
+    """
+    Strictly queries bills belonging to the authenticated user.
+    Never falls back to global data.
+    """
+    bills = db.query(models.Bill).filter(
+        models.Bill.user_id == user_id
+    ).order_by(models.Bill.created_at.desc()).offset(offset).limit(limit).all()
     return bills
 
 

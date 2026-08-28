@@ -4,7 +4,6 @@ import firebase_admin
 from firebase_admin import credentials, auth
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import jwt
 
 _SERVICE_ACCOUNT_PATH = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
 
@@ -23,26 +22,37 @@ async def get_current_user_id(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer_scheme)] = None
 ) -> str:
     """
-    Robust Token Authentication with Local Dev Fallback:
-    1. Verifies Bearer Firebase ID token via Firebase Admin SDK.
-    2. If token is expired or unverified, decodes UID payload or falls back gracefully to active store account.
+    Authoritative Firebase Authentication:
+    1. Validates Bearer Firebase ID token via Firebase Admin SDK.
+    2. Missing token -> HTTP 401 Unauthorized.
+    3. Invalid / Expired token -> HTTP 401 Unauthorized.
+    4. Valid token -> returns verified Firebase UID.
+    No hardcoded fallbacks or unverified JWT bypasses allowed.
     """
-    if credentials and credentials.credentials:
-        token = credentials.credentials
-        try:
-            decoded = auth.verify_id_token(token)
-            return decoded["uid"]
-        except Exception:
-            try:
-                unverified = jwt.decode(token, options={"verify_signature": False})
-                uid = unverified.get("uid") or unverified.get("user_id") or unverified.get("sub")
-                if uid:
-                    return uid
-            except Exception:
-                pass
+    if not credentials or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
-    # Default fallback user account
-    return "uXXp4u9hvxP9hrv22LvllrlX6hx1"
+    token = credentials.credentials
+    try:
+        decoded_token = auth.verify_id_token(token)
+        uid = decoded_token.get("uid")
+        if not uid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token payload: missing UID",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        return uid
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired authentication token: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
 
 CurrentUser = Annotated[str, Depends(get_current_user_id)]

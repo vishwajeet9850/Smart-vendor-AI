@@ -2,38 +2,42 @@ import os
 import io
 import httpx
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, status
+from auth import CurrentUser
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Recognition"])
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB limit
 
 
 @router.post("/transcribe")
 async def transcribe_audio(
+    user_id: CurrentUser,
     file: UploadFile = File(...),
-    language: Optional[str] = Form(None),
-    x_groq_api_key: Optional[str] = Header(None, alias="X-Groq-Api-Key")
+    language: Optional[str] = Form(None)
 ):
     """
-    Transcribes audio using Groq's ultra-fast Whisper-large-v3 model.
+    Transcribes audio using Groq Whisper-large-v3 model with server-side environment key.
+    Protected by Firebase Authentication.
     Supports Marathi ('mr'), Hindi ('hi'), English ('en'), or auto-detection.
     """
-    api_key = x_groq_api_key or os.environ.get("GROQ_API_KEY", "").strip()
-
+    api_key = os.environ.get("GROQ_API_KEY", "").strip()
     if not api_key:
-        return {
-            "success": False,
-            "transcript": "",
-            "error": "GROQ_API_KEY is not configured on server or in request header.",
-            "source": "none"
-        }
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Voice transcription service is not configured on server (missing GROQ_API_KEY)"
+        )
+
+    audio_bytes = await file.read()
+    if len(audio_bytes) > MAX_AUDIO_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Audio recording exceeds maximum allowable size (10MB)"
+        )
 
     try:
-        audio_bytes = await file.read()
         filename = file.filename or "recording.m4a"
-
-        # Prepare multipart data for Groq API
         files = {
             "file": (filename, audio_bytes, file.content_type or "audio/m4a")
         }
@@ -42,9 +46,7 @@ async def transcribe_audio(
             "response_format": "json"
         }
 
-        # If language is specified and valid (e.g. 'mr', 'hi', 'en')
         if language and language not in ["auto", ""]:
-            # normalize 'mr-IN' -> 'mr', 'hi-IN' -> 'hi', 'en-IN' -> 'en'
             lang_code = language.split("-")[0].lower()
             data["language"] = lang_code
 
@@ -65,25 +67,22 @@ async def transcribe_audio(
                     "source": "groq_whisper"
                 }
             else:
-                error_detail = response.text
-                return {
-                    "success": False,
-                    "transcript": "",
-                    "error": f"Groq API error ({response.status_code}): {error_detail}",
-                    "source": "groq_error"
-                }
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Groq API transcription error ({response.status_code}): {response.text}"
+                )
 
+    except HTTPException:
+        raise
     except Exception as ex:
-        return {
-            "success": False,
-            "transcript": "",
-            "error": f"Transcription failed: {str(ex)}",
-            "source": "server_error"
-        }
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Transcription failed: {str(ex)}"
+        )
 
 
 @router.get("/status")
-def voice_service_status():
+def voice_service_status(user_id: CurrentUser):
     api_key = os.environ.get("GROQ_API_KEY", "").strip()
     return {
         "status": "online",
