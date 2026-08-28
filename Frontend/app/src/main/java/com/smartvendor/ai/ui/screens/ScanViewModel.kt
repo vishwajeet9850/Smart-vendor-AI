@@ -182,7 +182,8 @@ class ScanViewModel(
                 isBarcodeActive = false,
                 activeDetections = emptyList(),
                 detectedProduct = null,
-                aiStatus = if (useOcr) "Price/OCR Scanner Active (Manual Confirm)" else "Smart AI Scanner Ready"
+                isProcessingFrame = false,
+                aiStatus = if (useOcr) "Price/OCR Mode (Point at text/price)" else "Smart AI Scanner Ready"
             )
         }
     }
@@ -194,15 +195,24 @@ class ScanViewModel(
                 isOcrActive = false,
                 activeDetections = emptyList(),
                 detectedProduct = null,
+                isProcessingFrame = false,
                 aiStatus = if (useBarcode) "Barcode Scanner Active" else "Smart AI Scanner Ready"
             )
         }
     }
 
     private var lastFrameProcessTime: Long = 0L
+    private var lastOcrProcessTime: Long = 0L
 
     fun processFrame(imageProxy: ImageProxy) {
         val now = System.currentTimeMillis()
+
+        // If a candidate product card is already waiting for vendor confirmation, don't overwhelm with new frames
+        if (_uiState.value.detectedProduct != null) {
+            imageProxy.close()
+            return
+        }
+
         if (_uiState.value.isProcessingFrame || (now - lastFrameProcessTime < 180L)) {
             imageProxy.close()
             return
@@ -212,8 +222,15 @@ class ScanViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isProcessingFrame = true) }
 
-            // 1. OCR Label & Price Reader Mode (NO AUTO-ADD -> Prompts vendor)
+            // 1. OCR Label & Price Reader Mode (Throttled to 400ms, NO AUTO-ADD)
             if (_uiState.value.isOcrActive) {
+                if (now - lastOcrProcessTime < 400L) {
+                    imageProxy.close()
+                    _uiState.update { it.copy(isProcessingFrame = false) }
+                    return@launch
+                }
+                lastOcrProcessTime = now
+
                 ocrScanner.processImage(
                     imageProxy = imageProxy,
                     onSuccess = { ocrResult -> handleOcrDetected(ocrResult) },
@@ -234,7 +251,7 @@ class ScanViewModel(
                 return@launch
             }
 
-            // 3. Smart AI Mode: ONLY YOLOv11 AUTO-ADDS DIRECTLY TO BILL
+            // 3. Smart AI Mode: ONLY YOLO AUTO-ADDS DIRECTLY TO BILL
             val yoloResponse = yoloDetector.detectFromImageProxy(imageProxy, confThreshold = confidenceThreshold)
             if (yoloResponse != null && yoloResponse.detections.isNotEmpty()) {
                 handleYoloDetected(yoloResponse)
@@ -424,7 +441,7 @@ class ScanViewModel(
     }
 
     /**
-     * OCR Mode: Strictly displays detected candidate or prefilled dialog - DOES NOT AUTO-ADD
+     * OCR Mode: Displays detected candidate confirmation card or updates status. NEVER automatically loops dialogs.
      */
     private fun handleOcrDetected(ocrResult: OcrResult) {
         viewModelScope.launch {
@@ -434,7 +451,7 @@ class ScanViewModel(
                 val rankedInventoryMatches = ocrScanner.findRankedInventoryMatches(
                     ocrResult = ocrResult,
                     inventoryProducts = products,
-                    threshold = 0.70f
+                    threshold = 0.60f
                 )
 
                 if (rankedInventoryMatches.isNotEmpty()) {
@@ -443,24 +460,28 @@ class ScanViewModel(
                         it.copy(
                             detectedProduct = storeMatch,
                             selectedQuantity = 1,
-                            aiStatus = "OCR Match: ${storeMatch.name} (Tap Add)",
+                            aiStatus = "Found: ${storeMatch.name}",
                             isProcessingFrame = false
                         )
                     }
                     return@launch
                 }
 
-                // If no exact inventory match, check if price or prominent brand detected
+                // If not in inventory but price/title found, update OCR prefilled text and status bar
                 val prefillTitle = ocrResult.topBrandTitle.ifBlank { ocrResult.dominantBrandKeywords.joinToString(" ") }
                 val prefillPrice = ocrResult.detectedPrice?.let { "%.2f".format(it) } ?: ""
 
                 if (prefillTitle.isNotBlank() || prefillPrice.isNotBlank()) {
+                    val statusDesc = if (prefillPrice.isNotBlank()) {
+                        "OCR: '$prefillTitle' (₹$prefillPrice) — Tap + to Add"
+                    } else {
+                        "OCR: '$prefillTitle' — Tap + to Add"
+                    }
                     _uiState.update {
                         it.copy(
                             ocrPrefilledName = prefillTitle,
                             ocrPrefilledPrice = prefillPrice,
-                            showManualEntryDialog = true,
-                            aiStatus = "OCR Label Captured",
+                            aiStatus = statusDesc,
                             isProcessingFrame = false
                         )
                     }
