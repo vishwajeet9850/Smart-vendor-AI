@@ -2,7 +2,6 @@ package com.smartvendor.ai.ui.screens
 
 import android.content.Context
 import android.graphics.RectF
-import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,17 +19,15 @@ import com.smartvendor.ai.repository.ProductRepositoryImpl
 import com.smartvendor.ai.repository.SalesRepository
 import com.smartvendor.ai.repository.SalesRepositoryImpl
 import com.smartvendor.ai.voice.ParsedVoiceItem
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 data class ScanUiState(
-    val aiStatus: String = "Smart AI Scanner Ready",
+    val aiStatus: String = "⚡ Smart Auto-Add Active",
     val isBarcodeActive: Boolean = false,
     val isOcrActive: Boolean = false,
     val activeDetections: List<DetectionResult> = emptyList(),
@@ -48,7 +45,8 @@ data class ScanUiState(
     val isProcessingFrame: Boolean = false,
     val autoAddEnabled: Boolean = true,
     val lastAutoAddedProduct: Product? = null,
-    val lastAutoAddedTimestamp: Long = 0L
+    val lastAutoAddedTimestamp: Long = 0L,
+    val ignoredProductsCount: Int = 0
 )
 
 class ScanViewModel(
@@ -63,9 +61,12 @@ class ScanViewModel(
     private val barcodeScanner = BarcodeScannerManager()
     private val ocrScanner = OcrScannerManager()
 
-    private val dismissedProductIds = ConcurrentHashMap.newKeySet<String>()
+    // Stop Timers / Cooldown Maps
     private val recentlyAddedTimestampMap = ConcurrentHashMap<String, Long>()
-    private val addedCooldownMs = 4000L
+    private val ignoredProductsTimestampMap = ConcurrentHashMap<String, Long>()
+
+    private val addedCooldownMs = 3500L     // 3.5 seconds stop timer after adding
+    private val ignoredCooldownMs = 8000L   // 8 seconds stop timer after ignoring/undoing
 
     private val labelToProductMap = mapOf(
         "appe_fizz" to Product(id = "PROD_APPE_FIZZ", name = "Appy Fizz Sparkling Apple Drink", price = 20.0, stock = 50, category = "Beverages", barcode = "8902579100018"),
@@ -81,7 +82,7 @@ class ScanViewModel(
 
     fun initialize(context: Context, billId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(aiStatus = "YOLOv11 Model Ready (9 Classes)") }
+            _uiState.update { it.copy(aiStatus = "⚡ Auto-Add Active (YOLOv11)") }
             loadBill(billId)
             observeInventory()
         }
@@ -112,7 +113,7 @@ class ScanViewModel(
                     val newBill = Bill(billId = validId, items = emptyList(), subtotal = 0.0, gst = 0.0, grandTotal = 0.0)
                     salesRepository.saveBill(newBill)
                     recentlyAddedTimestampMap.clear()
-                    dismissedProductIds.clear()
+                    ignoredProductsTimestampMap.clear()
                     _uiState.update { it.copy(currentBill = newBill) }
                 }
             }.onFailure {
@@ -120,6 +121,16 @@ class ScanViewModel(
                 salesRepository.saveBill(newBill)
                 _uiState.update { it.copy(currentBill = newBill) }
             }
+        }
+    }
+
+    fun toggleAutoAdd() {
+        _uiState.update {
+            val nextState = !it.autoAddEnabled
+            it.copy(
+                autoAddEnabled = nextState,
+                aiStatus = if (nextState) "⚡ Auto-Add Enabled" else "✋ Manual Add Mode"
+            )
         }
     }
 
@@ -185,7 +196,7 @@ class ScanViewModel(
                 activeDetections = emptyList(),
                 detectedProduct = null,
                 detectedProductsList = emptyList(),
-                aiStatus = if (useOcr) "Price & Label Reader Active" else "YOLOv11 Smart AI Active"
+                aiStatus = if (useOcr) "Price & Label Reader Active" else "⚡ Auto-Add Active"
             )
         }
     }
@@ -198,7 +209,7 @@ class ScanViewModel(
                 activeDetections = emptyList(),
                 detectedProduct = null,
                 detectedProductsList = emptyList(),
-                aiStatus = if (useBarcode) "Barcode Scanner Active" else "YOLOv11 Smart AI Active"
+                aiStatus = if (useBarcode) "Barcode Scanner Active" else "⚡ Auto-Add Active"
             )
         }
     }
@@ -238,7 +249,7 @@ class ScanViewModel(
                 return@launch
             }
 
-            // 3. Smart Hybrid Mode: First run Fine-Tuned YOLOv11 Model (9 classes)
+            // 3. Smart Auto-Add Hybrid Mode: YOLOv11 Detections
             val yoloResponse = yoloDetector.detectFromImageProxy(imageProxy, confThreshold = 0.50f)
             if (yoloResponse != null && yoloResponse.detections.isNotEmpty()) {
                 handleYoloDetected(yoloResponse)
@@ -257,7 +268,6 @@ class ScanViewModel(
                     return@launch
                 }
 
-                // Map YOLO bounding boxes to DetectionResult for on-screen green overlays
                 val overlayDetections = detections.map { det ->
                     val bbox = det.bbox
                     val rect = if (bbox.size == 4) {
@@ -277,17 +287,19 @@ class ScanViewModel(
                 val labelClean = topDet.label.lowercase().trim()
                 val now = System.currentTimeMillis()
 
-                // Find matching product in Store Inventory or Seeded Catalog
                 val storeProducts = _uiState.value.inventoryProducts
                 val matchedProduct = findProductForLabel(labelClean, storeProducts)
 
                 if (matchedProduct != null) {
-                    val lastAdded = maxOf(
-                        recentlyAddedTimestampMap[matchedProduct.id] ?: 0L,
-                        recentlyAddedTimestampMap[matchedProduct.name.lowercase()] ?: 0L
-                    )
+                    val pId = matchedProduct.id
+                    val pNameLower = matchedProduct.name.lowercase()
 
-                    if (now - lastAdded < addedCooldownMs || dismissedProductIds.contains(matchedProduct.id)) {
+                    // Check Stop Timers (Added Cooldown & Ignored Cooldown)
+                    val lastAddedTime = maxOf(recentlyAddedTimestampMap[pId] ?: 0L, recentlyAddedTimestampMap[pNameLower] ?: 0L)
+                    val lastIgnoredTime = maxOf(ignoredProductsTimestampMap[pId] ?: 0L, ignoredProductsTimestampMap[pNameLower] ?: 0L)
+
+                    if (now - lastIgnoredTime < ignoredCooldownMs) {
+                        // Product is ignored / paused - do not add or alert
                         _uiState.update {
                             it.copy(
                                 activeDetections = overlayDetections,
@@ -297,15 +309,37 @@ class ScanViewModel(
                         return@launch
                     }
 
-                    _uiState.update {
-                        it.copy(
-                            activeDetections = overlayDetections,
-                            detectedProduct = matchedProduct,
-                            detectedProductsList = listOf(matchedProduct),
-                            selectedQuantity = 1,
-                            aiStatus = "Detected: ${matchedProduct.name} (${(topDet.confidence * 100).toInt()}%)",
-                            isProcessingFrame = false
-                        )
+                    if (now - lastAddedTime < addedCooldownMs) {
+                        // Product was just added - cooldown active to prevent spam duplicates
+                        _uiState.update {
+                            it.copy(
+                                activeDetections = overlayDetections,
+                                isProcessingFrame = false
+                            )
+                        }
+                        return@launch
+                    }
+
+                    // Auto-Add or Manual Mode
+                    if (_uiState.value.autoAddEnabled) {
+                        addDirectlyToBill(matchedProduct)
+                        _uiState.update {
+                            it.copy(
+                                activeDetections = overlayDetections,
+                                isProcessingFrame = false
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                activeDetections = overlayDetections,
+                                detectedProduct = matchedProduct,
+                                detectedProductsList = listOf(matchedProduct),
+                                selectedQuantity = 1,
+                                aiStatus = "Found: ${matchedProduct.name}",
+                                isProcessingFrame = false
+                            )
+                        }
                     }
                 } else {
                     _uiState.update {
@@ -325,7 +359,6 @@ class ScanViewModel(
     private fun findProductForLabel(label: String, storeProducts: List<Product>): Product? {
         val normalized = label.replace("_", " ").lowercase().trim()
 
-        // 1. Direct match in active store inventory
         val directMatch = storeProducts.firstOrNull { prod ->
             val pName = prod.name.lowercase()
             pName.contains(normalized) || normalized.contains(pName) ||
@@ -341,7 +374,6 @@ class ScanViewModel(
         }
         if (directMatch != null) return directMatch
 
-        // 2. Fallback to predefined fine-tuned 9 class product definitions
         return labelToProductMap[label]
     }
 
@@ -353,8 +385,21 @@ class ScanViewModel(
 
             if (match != null) {
                 val lastAdded = recentlyAddedTimestampMap[match.id] ?: 0L
-                if (now - lastAdded >= addedCooldownMs) {
-                    addDirectlyToBill(match)
+                val lastIgnored = ignoredProductsTimestampMap[match.id] ?: 0L
+
+                if (now - lastIgnored >= ignoredCooldownMs && now - lastAdded >= addedCooldownMs) {
+                    if (_uiState.value.autoAddEnabled) {
+                        addDirectlyToBill(match)
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                detectedProduct = match,
+                                detectedProductsList = listOf(match),
+                                selectedQuantity = 1,
+                                aiStatus = "Found: ${match.name}"
+                            )
+                        }
+                    }
                 }
             } else {
                 val catMatches = productRepository.searchMasterCatalog(barcode).getOrDefault(emptyList())
@@ -396,23 +441,25 @@ class ScanViewModel(
                 )
 
                 for (storeMatch in rankedInventoryMatches) {
-                    val lastAdded = maxOf(
-                        recentlyAddedTimestampMap[storeMatch.id] ?: 0L,
-                        recentlyAddedTimestampMap[storeMatch.name.lowercase()] ?: 0L
-                    )
+                    val lastAdded = maxOf(recentlyAddedTimestampMap[storeMatch.id] ?: 0L, recentlyAddedTimestampMap[storeMatch.name.lowercase()] ?: 0L)
+                    val lastIgnored = maxOf(ignoredProductsTimestampMap[storeMatch.id] ?: 0L, ignoredProductsTimestampMap[storeMatch.name.lowercase()] ?: 0L)
 
-                    if (now - lastAdded < addedCooldownMs || dismissedProductIds.contains(storeMatch.id)) {
+                    if (now - lastIgnored < ignoredCooldownMs || now - lastAdded < addedCooldownMs) {
                         continue
                     }
 
-                    _uiState.update {
-                        it.copy(
-                            detectedProduct = storeMatch,
-                            detectedProductsList = listOf(storeMatch),
-                            selectedQuantity = 1,
-                            aiStatus = "Found: ${storeMatch.name}",
-                            isProcessingFrame = false
-                        )
+                    if (_uiState.value.autoAddEnabled) {
+                        addDirectlyToBill(storeMatch)
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                detectedProduct = storeMatch,
+                                detectedProductsList = listOf(storeMatch),
+                                selectedQuantity = 1,
+                                aiStatus = "Found: ${storeMatch.name}",
+                                isProcessingFrame = false
+                            )
+                        }
                     }
                     return@launch
                 }
@@ -436,23 +483,25 @@ class ScanViewModel(
                             barcode = catItem.barcode ?: ""
                         )
 
-                        val lastAdded = maxOf(
-                            recentlyAddedTimestampMap[targetProduct.id] ?: 0L,
-                            recentlyAddedTimestampMap[targetProduct.name.lowercase()] ?: 0L
-                        )
+                        val lastAdded = maxOf(recentlyAddedTimestampMap[targetProduct.id] ?: 0L, recentlyAddedTimestampMap[targetProduct.name.lowercase()] ?: 0L)
+                        val lastIgnored = maxOf(ignoredProductsTimestampMap[targetProduct.id] ?: 0L, ignoredProductsTimestampMap[targetProduct.name.lowercase()] ?: 0L)
 
-                        if (now - lastAdded < addedCooldownMs || dismissedProductIds.contains(targetProduct.id)) {
+                        if (now - lastIgnored < ignoredCooldownMs || now - lastAdded < addedCooldownMs) {
                             continue
                         }
 
-                        _uiState.update {
-                            it.copy(
-                                detectedProduct = targetProduct,
-                                detectedProductsList = listOf(targetProduct),
-                                selectedQuantity = 1,
-                                aiStatus = "Found Catalog: ${targetProduct.name}",
-                                isProcessingFrame = false
-                            )
+                        if (_uiState.value.autoAddEnabled) {
+                            addDirectlyToBill(targetProduct)
+                        } else {
+                            _uiState.update {
+                                it.copy(
+                                    detectedProduct = targetProduct,
+                                    detectedProductsList = listOf(targetProduct),
+                                    selectedQuantity = 1,
+                                    aiStatus = "Found: ${targetProduct.name}",
+                                    isProcessingFrame = false
+                                )
+                            }
                         }
                         return@launch
                     }
@@ -506,7 +555,7 @@ class ScanViewModel(
                     currentBill = updated,
                     lastAutoAddedProduct = product,
                     lastAutoAddedTimestamp = now,
-                    aiStatus = "Added +1 ${product.name}"
+                    aiStatus = "⚡ Auto-Added +1 ${product.name} (₹${product.price.toInt()})"
                 )
             }
         }
@@ -563,43 +612,45 @@ class ScanViewModel(
         }
     }
 
-    fun addAllDetectedProductsToBill() {
-        addProductToBill()
-    }
-
-    fun selectDetectedProduct(product: Product) {
-        _uiState.update { it.copy(detectedProduct = product) }
-    }
-
-    fun removeDetectedProductFromList(product: Product) {
-        val updated = _uiState.value.detectedProductsList.filterNot { it.id == product.id }
-        _uiState.update {
-            it.copy(
-                detectedProductsList = updated,
-                detectedProduct = updated.firstOrNull()
-            )
-        }
-    }
-
-    fun increaseQuantity() {
-        _uiState.update { it.copy(selectedQuantity = it.selectedQuantity + 1) }
-    }
-
-    fun decreaseQuantity() {
-        _uiState.update { it.copy(selectedQuantity = (it.selectedQuantity - 1).coerceAtLeast(1)) }
-    }
-
     fun cancelDetection() {
         val prod = _uiState.value.detectedProduct
+        val now = System.currentTimeMillis()
         if (prod != null) {
-            dismissedProductIds.add(prod.id)
-            dismissedProductIds.add(prod.name.lowercase())
+            ignoredProductsTimestampMap[prod.id] = now
+            ignoredProductsTimestampMap[prod.name.lowercase()] = now
         }
         _uiState.update {
             it.copy(
                 detectedProduct = null,
                 detectedProductsList = emptyList(),
-                activeDetections = emptyList()
+                activeDetections = emptyList(),
+                aiStatus = "Ignored: ${prod?.name ?: "Item"} (paused 8s)",
+                ignoredProductsCount = ignoredProductsTimestampMap.size
+            )
+        }
+    }
+
+    fun ignoreProduct(product: Product) {
+        val now = System.currentTimeMillis()
+        ignoredProductsTimestampMap[product.id] = now
+        ignoredProductsTimestampMap[product.name.lowercase()] = now
+        _uiState.update {
+            it.copy(
+                detectedProduct = null,
+                detectedProductsList = emptyList(),
+                activeDetections = emptyList(),
+                aiStatus = "Ignored: ${product.name} (paused 8s)",
+                ignoredProductsCount = ignoredProductsTimestampMap.size
+            )
+        }
+    }
+
+    fun resetIgnoredList() {
+        ignoredProductsTimestampMap.clear()
+        _uiState.update {
+            it.copy(
+                ignoredProductsCount = 0,
+                aiStatus = "Stop Timers Cleared"
             )
         }
     }
@@ -607,6 +658,12 @@ class ScanViewModel(
     fun undoLastAutoAddedProduct() {
         val lastAdded = _uiState.value.lastAutoAddedProduct ?: return
         val currentBill = _uiState.value.currentBill ?: return
+        val now = System.currentTimeMillis()
+
+        // Place on ignored stop timer for 8s so it does not immediately re-auto-add
+        ignoredProductsTimestampMap[lastAdded.id] = now
+        ignoredProductsTimestampMap[lastAdded.name.lowercase()] = now
+
         val items = currentBill.items.toMutableList()
         val index = items.indexOfLast { it.productId == lastAdded.id || it.name.equals(lastAdded.name, ignoreCase = true) }
 
@@ -635,11 +692,19 @@ class ScanViewModel(
                     it.copy(
                         currentBill = updated,
                         lastAutoAddedProduct = null,
-                        aiStatus = "Undone: Removed ${lastAdded.name}"
+                        aiStatus = "Undone: Removed ${lastAdded.name} (paused 8s)"
                     )
                 }
             }
         }
+    }
+
+    fun increaseQuantity() {
+        _uiState.update { it.copy(selectedQuantity = it.selectedQuantity + 1) }
+    }
+
+    fun decreaseQuantity() {
+        _uiState.update { it.copy(selectedQuantity = (it.selectedQuantity - 1).coerceAtLeast(1)) }
     }
 
     fun openManualEntryDialog() {

@@ -32,8 +32,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,6 +46,7 @@ import com.smartvendor.ai.ui.theme.BluePrimary
 import com.smartvendor.ai.ui.theme.RedPrimary
 import com.smartvendor.ai.ui.theme.WarningYellow
 import com.smartvendor.ai.utils.PermissionUtils
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -206,23 +205,22 @@ fun ScanScreen(
                     BarcodeTargetOverlay()
                 }
 
-                // Top Mode Toggle Row
+                // Top Mode Toggle Row with Auto-Add Switch
                 Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(12.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         FilterChip(
                             selected = !uiState.isBarcodeActive && !uiState.isOcrActive,
-                            onClick = {
-                                viewModel.toggleScanMode(useOcr = false)
-                            },
+                            onClick = { viewModel.toggleScanMode(useOcr = false) },
                             label = { Text("Smart AI") }
                         )
                         FilterChip(
@@ -235,11 +233,41 @@ fun ScanScreen(
                             onClick = { viewModel.toggleScanMode(useOcr = !uiState.isOcrActive) },
                             label = { Text("Price/OCR") }
                         )
+
+                        VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
+
+                        // Auto-Add Toggle Chip
+                        FilterChip(
+                            selected = uiState.autoAddEnabled,
+                            onClick = { viewModel.toggleAutoAdd() },
+                            label = {
+                                Text(
+                                    text = if (uiState.autoAddEnabled) "⚡ Auto: ON" else "✋ Auto: OFF",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AccentGreen,
+                                selectedLabelColor = Color.White
+                            )
+                        )
                     }
                 }
 
-                // Detected Product Preview Card (Bottom Center)
-                if (uiState.detectedProduct != null) {
+                // Auto-Add Toast / Banner with Live Countdown Timer & Undo Button
+                if (uiState.lastAutoAddedProduct != null) {
+                    AutoAddUndoBanner(
+                        product = uiState.lastAutoAddedProduct!!,
+                        timestamp = uiState.lastAutoAddedTimestamp,
+                        onUndo = { viewModel.undoLastAutoAddedProduct() },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 88.dp, start = 16.dp, end = 16.dp)
+                    )
+                }
+
+                // Manual Detected Product Card (when Auto-Add is OFF)
+                if (!uiState.autoAddEnabled && uiState.detectedProduct != null) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -282,6 +310,114 @@ fun ScanScreen(
                     onConfirm = { name, price, quantity ->
                         viewModel.addManualProductToBill(name, price, quantity)
                     }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AutoAddUndoBanner(
+    product: Product,
+    timestamp: Long,
+    onUndo: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var progress by remember(timestamp) { mutableFloatStateOf(1f) }
+    var isVisible by remember(timestamp) { mutableStateOf(true) }
+
+    LaunchedEffect(timestamp) {
+        val durationMs = 3500L
+        val stepMs = 50L
+        val totalSteps = durationMs / stepMs
+
+        for (i in totalSteps downTo 0) {
+            progress = i.toFloat() / totalSteps.toFloat()
+            delay(stepMs)
+        }
+        isVisible = false
+    }
+
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        modifier = modifier
+    ) {
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            color = AccentGreen,
+                            shape = CircleShape,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        Column {
+                            Text(
+                                text = "Auto-Added +1",
+                                style = MaterialTheme.typography.labelSmall.copy(color = AccentGreen, fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "${product.name} (₹${product.price.toInt()})",
+                                style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.SemiBold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            isVisible = false
+                            onUndo()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Undo,
+                            contentDescription = "Undo",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Undo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+
+                // Smooth countdown timer bar
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                    color = AccentGreen,
+                    trackColor = Color.White.copy(alpha = 0.1f),
                 )
             }
         }
@@ -389,7 +525,7 @@ fun DetectedProductCard(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onCancel) {
-                        Text("Ignore", color = Color.Gray)
+                        Text("Ignore (8s)", color = Color.Gray)
                     }
 
                     Button(
