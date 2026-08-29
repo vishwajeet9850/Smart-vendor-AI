@@ -41,6 +41,7 @@ class Bill(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     user_id = Column(String, nullable=False, index=True)
+    transaction_id = Column(String, nullable=True, index=True)
     transaction_type = Column(String, nullable=False, default="BILL", index=True)  # BILL, RETURN
     total_amount = Column(Float, nullable=False)
     tax_amount = Column(Float, nullable=False, default=0.0)
@@ -52,7 +53,9 @@ class Bill(Base):
     __table_args__ = (
         Index("ix_bills_user_created", "user_id", "created_at"),
         Index("ix_bills_user_type", "user_id", "transaction_type"),
+        Index("ix_bills_user_txn", "user_id", "transaction_id"),
     )
+
 
 
 class BillItem(Base):
@@ -99,4 +102,74 @@ class MasterCatalog(Base):
     category = Column(String, nullable=False, default="General")
     suggested_price = Column(Float, nullable=False, default=0.0)
     barcode = Column(String, nullable=True, index=True)
+
+
+class JournalTransaction(Base):
+    __tablename__ = "journal_transactions"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    transaction_id = Column(String, unique=True, nullable=False)
+    user_id = Column(String, nullable=False)
+    type = Column(String, nullable=False)  # SALE, RETURN, STOCK_ADJUST
+    bill_id = Column(String, nullable=True)
+    product_id = Column(String, nullable=True)
+    product_name = Column(String, nullable=True)
+    quantity = Column(Integer, nullable=True, default=0)
+    unit_price = Column(Float, nullable=True, default=0.0)
+    total_amount = Column(Float, nullable=True, default=0.0)
+    previous_stock = Column(Integer, nullable=True)
+    new_stock = Column(Integer, nullable=True)
+    return_condition = Column(String, nullable=False, default="GOOD")  # GOOD, DAMAGED
+    status = Column(String, nullable=False, default="APPLIED")  # PENDING, APPLIED, RECOVERED, FAILED
+    payload_json = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_journal_tx_user_id", "user_id"),
+        Index("ix_journal_tx_id", "transaction_id"),
+        Index("ix_journal_tx_bill_id", "bill_id"),
+        Index("ix_journal_tx_created", "user_id", "created_at"),
+    )
+
+
+class SystemCheckpoint(Base):
+    __tablename__ = "system_checkpoints"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, nullable=False)
+    checkpoint_id = Column(String, unique=True, nullable=False)
+    checkpoint_type = Column(String, nullable=False, default="AUTO")  # AUTO, MANUAL, PRE_BLACKOUT
+    snapshot_data = Column(Text, nullable=False)  # JSON dump of products, stock, bills, metadata
+    products_count = Column(Integer, nullable=False, default=0)
+    bills_count = Column(Integer, nullable=False, default=0)
+    last_transaction_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_checkpoints_user_id", "user_id"),
+        Index("ix_checkpoints_user_created", "user_id", "created_at"),
+    )
+
+
+class CIEAlert(Base):
+    __tablename__ = "cie_alerts"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    incident_id = Column(String, nullable=False, index=True)  # e.g. "cross_vendor_return_demo"
+    product_name = Column(String, nullable=False)
+    affected_vendors_count = Column(Integer, nullable=False, default=0)
+    total_returns_count = Column(Integer, nullable=False, default=0)
+    time_window_minutes = Column(Integer, nullable=False, default=30)
+    alert_title = Column(String, nullable=False)
+    alert_message = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="ACTIVE")  # ACTIVE, RESOLVED, DISMISSED
+    is_demo = Column(Integer, nullable=False, default=1)  # 1 for demo, 0 for real
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_cie_alerts_incident", "incident_id"),
+        Index("ix_cie_alerts_created", "created_at"),
+    )
+
 

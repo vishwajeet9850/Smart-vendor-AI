@@ -41,4 +41,8 @@ Backup-codes-*.txt
 *.db-wal
 *.pytest_cache/
 backend/models/saved_model_out/
+# Storage & Cache
+backend/checkpoint_storage/
+backend/journal_storage/
+**/.kotlin/
 

@@ -68,17 +68,17 @@ class ScanViewModel(
 
     val confidenceThreshold = 0.50f
 
-    // 9 YOLO fine-tuned classes
+    // 9 YOLO fine-tuned classes with clean, prominent front-facing names
     private val labelToProductMap = mapOf(
-        "appe_fizz" to Product(id = "PROD_APPE_FIZZ", name = "Appy Fizz Sparkling Apple Drink", price = 20.0, stock = 50, category = "Beverages", barcode = "8902579100018"),
-        "haldiram_soya_stick" to Product(id = "PROD_SOYA_STICK", name = "Haldiram Soya Sticks Masala", price = 20.0, stock = 40, category = "Snacks", barcode = "8904063200025"),
-        "hide_and_seek" to Product(id = "PROD_HIDE_SEEK", name = "Parle Hide & Seek Chocolate Biscuits", price = 30.0, stock = 60, category = "Biscuits & Snacks", barcode = "8901719104014"),
-        "jim_jam" to Product(id = "PROD_JIM_JAM", name = "Britannia Treat Jim Jam Biscuits", price = 35.0, stock = 45, category = "Biscuits & Snacks", barcode = "8901063013217"),
-        "maggi" to Product(id = "PROD_MAGGI_2MIN", name = "Maggi 2-Minute Masala Instant Noodles", price = 14.0, stock = 100, category = "Instant Food", barcode = "8901058852302"),
-        "nivea_deodorant" to Product(id = "PROD_NIVEA_DEO", name = "Nivea Men Fresh Active Deodorant", price = 199.0, stock = 25, category = "Personal Care", barcode = "4005900135804"),
-        "oreo" to Product(id = "PROD_OREO_BISCUIT", name = "Cadbury Oreo Vanilla Cream Biscuits", price = 30.0, stock = 80, category = "Biscuits & Snacks", barcode = "7622201732014"),
-        "surf_excel" to Product(id = "PROD_SURF_EXCEL", name = "Surf Excel Easy Wash Detergent Powder", price = 65.0, stock = 35, category = "Household Care", barcode = "8901030386009"),
-        "tresemme_shampoo" to Product(id = "PROD_TRESEMME", name = "Tresemme Keratin Smooth Shampoo", price = 120.0, stock = 30, category = "Personal Care", barcode = "8901030700010")
+        "appe_fizz" to Product(id = "PROD_APPE_FIZZ", name = "Appy Fizz", price = 20.0, stock = 50, category = "Beverages", barcode = "8902579100018"),
+        "haldiram_soya_stick" to Product(id = "PROD_SOYA_STICK", name = "Soya Sticks", price = 20.0, stock = 40, category = "Snacks", barcode = "8904063200025"),
+        "hide_and_seek" to Product(id = "PROD_HIDE_SEEK", name = "Hide & Seek", price = 30.0, stock = 60, category = "Biscuits & Snacks", barcode = "8901719104014"),
+        "jim_jam" to Product(id = "PROD_JIM_JAM", name = "Jim Jam", price = 35.0, stock = 45, category = "Biscuits & Snacks", barcode = "8901063013217"),
+        "maggi" to Product(id = "PROD_MAGGI_2MIN", name = "Maggi", price = 14.0, stock = 100, category = "Instant Food", barcode = "8901058852302"),
+        "nivea_deodorant" to Product(id = "PROD_NIVEA_DEO", name = "Nivea Deodorant", price = 199.0, stock = 25, category = "Personal Care", barcode = "4005900135804"),
+        "oreo" to Product(id = "PROD_OREO_BISCUIT", name = "Oreo", price = 30.0, stock = 80, category = "Biscuits & Snacks", barcode = "7622201732014"),
+        "surf_excel" to Product(id = "PROD_SURF_EXCEL", name = "Surf Excel", price = 65.0, stock = 35, category = "Household Care", barcode = "8901030386009"),
+        "tresemme_shampoo" to Product(id = "PROD_TRESEMME", name = "Tresemme Shampoo", price = 120.0, stock = 30, category = "Personal Care", barcode = "8901030700010")
     )
 
     fun initialize(context: Context, billId: String) {
@@ -517,6 +517,7 @@ class ScanViewModel(
     }
 
     private fun findProductForLabel(label: String, storeProducts: List<Product>): Product? {
+        val fallback = labelToProductMap[label]
         val normalized = label.replace("_", " ").lowercase().trim()
 
         val directMatch = storeProducts.firstOrNull { prod ->
@@ -532,9 +533,13 @@ class ScanViewModel(
                     (label.contains("nivea") && pName.contains("nivea")) ||
                     (label.contains("tresemme") && pName.contains("tresemme"))
         }
-        if (directMatch != null) return directMatch
 
-        return labelToProductMap[label]
+        if (directMatch != null) {
+            val cleanName = fallback?.name ?: OcrScannerManager.cleanOcrTitle(directMatch.name)
+            return directMatch.copy(name = cleanName)
+        }
+
+        return fallback
     }
 
     fun addDetectedProductToBill() {

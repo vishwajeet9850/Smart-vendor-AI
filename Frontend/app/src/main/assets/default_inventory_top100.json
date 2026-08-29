@@ -1,7 +1,7 @@
 [
   {
     "id": "PROD_YOLO_OREO",
-    "name": "Cadbury Oreo Vanilla Creme Biscuits 120g",
+    "name": "Oreo",
     "category": "Biscuits & Snacks",
     "price": 35.0,
     "costPrice": 28.0,
@@ -15,7 +15,7 @@
   },
   {
     "id": "PROD_YOLO_JIMJAM",
-    "name": "Britannia Treat Jim Jam Biscuits 100g",
+    "name": "Jim Jam",
     "category": "Biscuits & Snacks",
     "price": 35.0,
     "costPrice": 28.0,
@@ -29,7 +29,7 @@
   },
   {
     "id": "PROD_YOLO_APPY",
-    "name": "Appy Fizz Sparkling Apple Drink 250ml",
+    "name": "Appy Fizz",
     "category": "Beverages & Drinks",
     "price": 20.0,
     "costPrice": 16.0,
@@ -43,7 +43,7 @@
   },
   {
     "id": "PROD_YOLO_SURF",
-    "name": "Surf Excel Easy Wash Detergent Powder 1kg",
+    "name": "Surf Excel",
     "category": "Cleaning & Household",
     "price": 145.0,
     "costPrice": 125.0,
@@ -57,7 +57,7 @@
   },
   {
     "id": "PROD_YOLO_MAGGI",
-    "name": "Maggi 2-Minute Masala Noodles 70g",
+    "name": "Maggi",
     "category": "Snacks & Instant Foods",
     "price": 14.0,
     "costPrice": 11.5,
@@ -67,6 +67,62 @@
     "gst": 12,
     "unit": "pack",
     "classId": 4,
+    "imageUrl": ""
+  },
+  {
+    "id": "PROD_SOYA_STICK",
+    "name": "Soya Sticks",
+    "category": "Snacks & Instant Foods",
+    "price": 20.0,
+    "costPrice": 15.0,
+    "stock": 40,
+    "lowStockThreshold": 10,
+    "barcode": "8904063200025",
+    "gst": 12,
+    "unit": "pack",
+    "classId": 2,
+    "imageUrl": ""
+  },
+  {
+    "id": "PROD_HIDE_SEEK",
+    "name": "Hide & Seek",
+    "category": "Biscuits & Snacks",
+    "price": 30.0,
+    "costPrice": 24.0,
+    "stock": 60,
+    "lowStockThreshold": 10,
+    "barcode": "8901719104014",
+    "gst": 18,
+    "unit": "pack",
+    "classId": 6,
+    "imageUrl": ""
+  },
+  {
+    "id": "PROD_NIVEA_DEO",
+    "name": "Nivea Deodorant",
+    "category": "Personal Care",
+    "price": 199.0,
+    "costPrice": 160.0,
+    "stock": 25,
+    "lowStockThreshold": 5,
+    "barcode": "4005900135804",
+    "gst": 18,
+    "unit": "bottle",
+    "classId": 7,
+    "imageUrl": ""
+  },
+  {
+    "id": "PROD_TRESEMME",
+    "name": "Tresemme Shampoo",
+    "category": "Personal Care",
+    "price": 120.0,
+    "costPrice": 95.0,
+    "stock": 30,
+    "lowStockThreshold": 5,
+    "barcode": "8901030700010",
+    "gst": 18,
+    "unit": "bottle",
+    "classId": 8,
     "imageUrl": ""
   },
   {

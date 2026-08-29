@@ -10,6 +10,11 @@ import com.smartvendor.ai.model.Product
 import com.smartvendor.ai.model.Store
 import com.smartvendor.ai.network.ApiClient
 import com.smartvendor.ai.network.models.*
+import com.smartvendor.ai.model.JournalTransaction
+import com.smartvendor.ai.model.SystemCheckpoint
+import com.smartvendor.ai.model.RecoveryReport
+import com.smartvendor.ai.model.InventoryItemSummary
+import com.smartvendor.ai.ocr.OcrScannerManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +34,7 @@ import java.util.UUID
  * - Stores Active Store Inventory (Top 100 seeded on launch + user offline edits)
  * - Indexes 6,000 Indian Master Catalog items for instant offline search & recommendation
  * - Persists all local Bills, Stock updates, and Store Profile to disk
+ * - Durable Append-Only Transaction Journal & Checkpoint Recovery Engine (The Blackout Layer)
  * - Safely merges bidirectional data with FastAPI backend without duplicate keys or data loss
  */
 object LocalStoreManager {
@@ -41,8 +47,7 @@ object LocalStoreManager {
     private var appContext: Context? = null
     private var isInitialized = false
 
-
-    // State flows for real-time UI updates
+    // State Flows for UI
     private val _productsFlow = MutableStateFlow<List<Product>>(emptyList())
     val productsFlow: StateFlow<List<Product>> = _productsFlow.asStateFlow()
 
@@ -55,11 +60,26 @@ object LocalStoreManager {
     private val _isOnlineFlow = MutableStateFlow(true)
     val isOnlineFlow: StateFlow<Boolean> = _isOnlineFlow.asStateFlow()
 
+    private val _isBlackoutActiveFlow = MutableStateFlow(false)
+    val isBlackoutActiveFlow: StateFlow<Boolean> = _isBlackoutActiveFlow.asStateFlow()
+
+    private val _journalFlow = MutableStateFlow<List<JournalTransaction>>(emptyList())
+    val journalFlow: StateFlow<List<JournalTransaction>> = _journalFlow.asStateFlow()
+
     fun setOnlineStatus(online: Boolean) {
         _isOnlineFlow.value = online
     }
 
     fun isOnline(): Boolean = _isOnlineFlow.value
+
+    fun setBlackoutActive(active: Boolean) {
+        _isBlackoutActiveFlow.value = active
+    }
+
+    fun isBlackoutActive(): Boolean = _isBlackoutActiveFlow.value
+
+    fun getLocalJournal(): List<JournalTransaction> = _journalFlow.value
+
 
     // In-memory master catalog (6,000 reference products)
     private var masterCatalogList: List<MasterCatalogResponse> = emptyList()
@@ -104,8 +124,12 @@ object LocalStoreManager {
                 val type = object : TypeToken<List<Product>>() {}.type
                 val loadedList: List<Product> = gson.fromJson(json, type) ?: emptyList()
                 if (loadedList.isNotEmpty()) {
-                    val cleanList = ensureUniqueProductIds(loadedList)
+                    val cleanList = ensureUniqueProductIds(loadedList).map { p ->
+                        val shortName = OcrScannerManager.cleanOcrTitle(p.name)
+                        if (shortName.isNotBlank()) p.copy(name = shortName) else p
+                    }
                     _productsFlow.value = cleanList
+                    saveProductsToDisk(cleanList)
                     Log.d(TAG, "Loaded ${cleanList.size} products from local storage.")
                 } else {
                     seedTop100FromAssets()
@@ -138,7 +162,19 @@ object LocalStoreManager {
                 _billsFlow.value = list
             } catch (_: Exception) {}
         }
+
+        // Load Transaction Journal (Resilience & Recovery)
+        val journalFile = File(ctx.filesDir, "local_transaction_journal.json")
+        if (journalFile.exists()) {
+            try {
+                val json = journalFile.readText(Charsets.UTF_8)
+                val type = object : TypeToken<List<JournalTransaction>>() {}.type
+                val list: List<JournalTransaction> = gson.fromJson(json, type) ?: emptyList()
+                _journalFlow.value = list
+            } catch (_: Exception) {}
+        }
     }
+
 
     private fun seedTop100FromAssets() {
         val ctx = appContext ?: return
@@ -146,7 +182,10 @@ object LocalStoreManager {
             val json = ctx.assets.open("default_inventory_top100.json").bufferedReader().use { it.readText() }
             val type = object : TypeToken<List<Product>>() {}.type
             val list: List<Product> = gson.fromJson(json, type) ?: emptyList()
-            val cleanList = ensureUniqueProductIds(list)
+            val cleanList = ensureUniqueProductIds(list).map { p ->
+                val shortName = OcrScannerManager.cleanOcrTitle(p.name)
+                if (shortName.isNotBlank()) p.copy(name = shortName) else p
+            }
             _productsFlow.value = cleanList
             saveProductsToDisk(cleanList)
             Log.d(TAG, "Successfully seeded Top ${cleanList.size} Kirana store inventory from assets.")
@@ -389,29 +428,272 @@ object LocalStoreManager {
         // If completed bill / return, immediately update stock in local inventory
         if (bill.status == Bill.BILL_STATUS_COMPLETED) {
             val isReturn = bill.transactionType == Bill.TRANSACTION_TYPE_RETURN
-            bill.items.forEach { item ->
+            val txType = if (isReturn) "RETURN" else "SALE"
+            val txStatus = if (_isBlackoutActiveFlow.value) "PENDING" else "APPLIED"
+            val txnBaseId = "TXN_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
+            val currentJournal = _journalFlow.value.toMutableList()
+
+            bill.items.forEachIndexed { idx, item ->
                 val product = getProductById(item.productId)
-                if (product != null) {
-                    val newStock = if (isReturn) {
-                        if (item.condition == BillItem.CONDITION_GOOD) {
-                            product.stock + item.quantity
-                        } else {
-                            product.stock // Damaged items do not increase sellable stock
-                        }
+                val prevStock = product?.stock
+                val newStock = if (isReturn) {
+                    if (item.condition == BillItem.CONDITION_GOOD) {
+                        (prevStock ?: 0) + item.quantity
                     } else {
-                        (product.stock - item.quantity).coerceAtLeast(0)
+                        prevStock ?: 0 // Damaged items do not increase sellable stock
                     }
+                } else {
+                    ((prevStock ?: 0) - item.quantity).coerceAtLeast(0)
+                }
+                if (product != null) {
                     updateStock(product.id, newStock)
                 }
+
+                // Append item to durable local transaction journal
+                val journalEntry = JournalTransaction(
+                    id = UUID.randomUUID().toString(),
+                    transactionId = "${txnBaseId}_${idx}",
+                    userId = "local_user",
+                    type = txType,
+                    billId = bill.billId,
+                    productId = item.productId,
+                    productName = item.name,
+                    quantity = item.quantity,
+                    unitPrice = item.unitPrice,
+                    totalAmount = item.lineTotal,
+                    previousStock = prevStock,
+                    newStock = newStock,
+                    returnCondition = item.condition,
+                    status = txStatus,
+                    createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                )
+                currentJournal.add(0, journalEntry)
             }
+
+            _journalFlow.value = currentJournal
+            saveJournalToDisk(currentJournal)
 
             synchronized(syncQueue) {
                 syncQueue.pendingBills.add(bill)
                 saveSyncQueue()
             }
-            scope.launch { syncWithServer() }
+            if (!_isBlackoutActiveFlow.value) {
+                scope.launch { syncWithServer() }
+            }
         }
     }
+
+    private fun saveJournalToDisk(journal: List<JournalTransaction>) {
+        val ctx = appContext ?: return
+        try {
+            val file = File(ctx.filesDir, "local_transaction_journal.json")
+            file.writeText(gson.toJson(journal), Charsets.UTF_8)
+        } catch (_: Exception) {}
+    }
+
+    fun createLocalCheckpoint(type: String = "MANUAL"): SystemCheckpoint {
+        val chkId = "CHK_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
+        val now = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+        val ctx = appContext
+        if (ctx != null) {
+            try {
+                val file = File(ctx.filesDir, "local_checkpoint.json")
+                val snapshot = mapOf(
+                    "checkpoint_id" to chkId,
+                    "products" to _productsFlow.value,
+                    "bills" to _billsFlow.value,
+                    "created_at" to now
+                )
+                file.writeText(gson.toJson(snapshot), Charsets.UTF_8)
+            } catch (_: Exception) {}
+        }
+        return SystemCheckpoint(
+            id = UUID.randomUUID().toString(),
+            checkpointId = chkId,
+            userId = "local_user",
+            checkpointType = type,
+            productsCount = _productsFlow.value.size,
+            billsCount = _billsFlow.value.size,
+            createdAt = now
+        )
+    }
+
+    fun restoreFromLocalCheckpoint(): RecoveryReport {
+        val ctx = appContext
+        var discovered = 0
+        var recovered = 0
+        val now = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+        var lastChkId: String? = null
+
+        if (ctx != null) {
+            val file = File(ctx.filesDir, "local_checkpoint.json")
+            if (file.exists()) {
+                try {
+                    val json = file.readText(Charsets.UTF_8)
+                    val mapType = object : TypeToken<Map<String, Any>>() {}.type
+                    val snapshot: Map<String, Any> = gson.fromJson(json, mapType) ?: emptyMap()
+                    lastChkId = snapshot["checkpoint_id"] as? String
+                } catch (_: Exception) {}
+            }
+        }
+
+        // Only replay transactions that are PENDING (i.e. were written during blackout).
+        // APPLIED entries were already synced before the blackout — replaying them would
+        // double-deduct stock.
+        val fullJournal = _journalFlow.value
+        val pendingTxns = fullJournal.filter { it.status.uppercase(Locale.US) == "PENDING" }
+        discovered = pendingTxns.size
+        for (tx in pendingTxns.reversed()) {
+            val prod = getProductById(tx.productId ?: "")
+            if (prod != null && tx.quantity > 0) {
+                val isReturn = tx.type == "RETURN"
+                val cond = tx.returnCondition.uppercase(Locale.US)
+                val newStock = if (isReturn) {
+                    if (cond == "GOOD") prod.stock + tx.quantity else prod.stock
+                } else {
+                    (prod.stock - tx.quantity).coerceAtLeast(0)
+                }
+                updateStock(prod.id, newStock)
+            }
+            recovered++
+        }
+
+        markJournalRecovered()
+
+        _isBlackoutActiveFlow.value = false
+        val summary = _productsFlow.value.take(10).map {
+            InventoryItemSummary(
+                productId = it.id,
+                productName = it.name,
+                currentStock = it.stock,
+                price = it.price
+            )
+        }
+
+        return RecoveryReport(
+            systemStatus = "HEALTHY",
+            lastCheckpointId = lastChkId ?: "CHK_BASELINE",
+            transactionsDiscovered = discovered,
+            successfullyRecovered = recovered,
+            inventorySummary = summary,
+            billsCount = _billsFlow.value.size,
+            reportGeneratedAt = now
+        )
+    }
+
+
+    fun markJournalRecovered() {
+        val updated = _journalFlow.value.map {
+            it.copy(status = "RECOVERED")
+        }
+        _journalFlow.value = updated
+        saveJournalToDisk(updated)
+    }
+
+
+    fun resetLocalDemo() {
+        _isBlackoutActiveFlow.value = false
+        seedTop100FromAssets()
+        val ctx = appContext
+        if (ctx != null) {
+            try {
+                File(ctx.filesDir, "local_transaction_journal.json").delete()
+            } catch (_: Exception) {}
+        }
+        _journalFlow.value = emptyList()
+        createLocalCheckpoint("MANUAL")
+    }
+
+    fun injectCIEDemoReturnBills(productName: String, unitPrice: Double = 20.0, productId: String = "") {
+        val now = System.currentTimeMillis()
+        val currentBills = _billsFlow.value.toMutableList()
+        val currentJournal = _journalFlow.value.toMutableList()
+
+        // Clean out any old demo returns first
+        currentBills.removeAll { it.billId.contains("cross_vendor_return_demo") }
+        currentJournal.removeAll { it.transactionId.contains("cross_vendor_return_demo") || (it.payloadJson?.contains("cross_vendor_return_demo") == true) }
+
+        val demoSpecs = listOf(
+            Triple(6 * 60 * 1000L, 1, "Defective packaging seal"),
+            Triple(14 * 60 * 1000L, 2, "Customer complaint (taste anomaly)"),
+            Triple(22 * 60 * 1000L, 1, "Batch return (texture complaint)")
+        )
+
+        demoSpecs.forEachIndexed { index, (timeOffset, qty, reason) ->
+            val billTime = now - timeOffset
+            val billId = "BILL_CIE_cross_vendor_return_demo_USER_${index + 1}"
+            val txId = "CIE_DEMO_cross_vendor_return_demo_USER_${billTime / 1000}_${index + 1}"
+            val totalAmt = unitPrice * qty
+
+            val returnBill = Bill(
+                billId = billId,
+                cashierId = "Kirana Store",
+                storeId = _storeFlow.value.storeId.ifBlank { "store_01" },
+                transactionType = Bill.TRANSACTION_TYPE_RETURN,
+                items = listOf(
+                    BillItem(
+                        productId = productId,
+                        name = productName,
+                        quantity = qty,
+                        unitPrice = unitPrice,
+                        gst = 5.0,
+                        lineTotal = totalAmt,
+                        condition = BillItem.CONDITION_DAMAGED
+                    )
+                ),
+                subtotal = totalAmt,
+                gst = totalAmt * 0.05,
+                discount = 0.0,
+                grandTotal = totalAmt,
+                paymentMethod = "CASH",
+                timestamp = billTime,
+                status = Bill.BILL_STATUS_COMPLETED
+            )
+            currentBills.add(0, returnBill)
+
+            val journalEntry = JournalTransaction(
+                id = UUID.randomUUID().toString(),
+                transactionId = txId,
+                userId = "current_user",
+                type = "RETURN",
+                billId = billId,
+                productId = productId,
+                productName = productName,
+                quantity = qty,
+                unitPrice = unitPrice,
+                totalAmount = totalAmt,
+                previousStock = null,
+                newStock = null,
+                returnCondition = "DAMAGED",
+                status = "APPLIED",
+                payloadJson = "{\"demoIncidentId\":\"cross_vendor_return_demo\",\"simulated\":true,\"reason\":\"$reason\"}",
+                timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(java.util.Date(billTime)),
+                createdAt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(java.util.Date(billTime))
+            )
+            currentJournal.add(0, journalEntry)
+        }
+
+        _billsFlow.value = currentBills
+        saveBillsToDisk(currentBills)
+
+        _journalFlow.value = currentJournal
+        saveJournalToDisk(currentJournal)
+    }
+
+    fun clearCIEDemoReturnBills() {
+        val currentBills = _billsFlow.value.toMutableList()
+        val currentJournal = _journalFlow.value.toMutableList()
+
+        currentBills.removeAll { it.billId.contains("cross_vendor_return_demo") }
+        currentJournal.removeAll { it.transactionId.contains("cross_vendor_return_demo") || (it.payloadJson?.contains("cross_vendor_return_demo") == true) }
+
+        _billsFlow.value = currentBills
+        saveBillsToDisk(currentBills)
+
+        _journalFlow.value = currentJournal
+        saveJournalToDisk(currentJournal)
+    }
+
 
 
     // -------------------------------------------------------------------------

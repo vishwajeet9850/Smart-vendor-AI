@@ -111,4 +111,50 @@ interface ApiService {
         @Part("language") language: RequestBody? = null,
         @Header("X-Groq-Api-Key") groqApiKey: String? = null
     ): Response<VoiceTranscribeResponse>
+
+    // ─── Blackout Challenge & Resilience ─────────────────────────────
+
+    @GET("resilience/status")
+    suspend fun getResilienceStatus(): Response<com.smartvendor.ai.model.SystemStatus>
+
+    @POST("resilience/checkpoint")
+    suspend fun createCheckpoint(
+        @Query("checkpoint_type") checkpointType: String = "MANUAL"
+    ): Response<com.smartvendor.ai.model.SystemCheckpoint>
+
+    @POST("resilience/simulate-blackout")
+    suspend fun simulateBlackout(
+        @Query("reason") reason: String? = null
+    ): Response<com.smartvendor.ai.model.SystemStatus>
+
+    @POST("resilience/restore")
+    suspend fun restoreSystem(): Response<com.smartvendor.ai.model.RecoveryReport>
+
+    @POST("resilience/reset-demo")
+    suspend fun resetDemo(): Response<com.smartvendor.ai.model.SystemStatus>
+
+    @GET("resilience/journal")
+    suspend fun getTransactionJournal(
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0
+    ): Response<List<com.smartvendor.ai.model.JournalTransaction>>
+
+    @GET("resilience/report")
+    suspend fun getRecoveryReport(): Response<com.smartvendor.ai.model.RecoveryReport?>
+
+    @POST("resilience/sync-journal")
+    suspend fun syncJournal(@Body body: Map<String, Any>): Response<Map<String, Any>>
+
+    // ─── CIE Cross-Vendor Incident Engine ────────────────────────────
+
+    @GET("cie/status")
+    suspend fun getCIEStatus(): Response<com.smartvendor.ai.model.CIEStatusResponse>
+
+    @POST("cie/simulate-incident")
+    suspend fun simulateCIEIncident(
+        @Query("product_name") productName: String? = null
+    ): Response<com.smartvendor.ai.model.CIEStatusResponse>
+
+    @POST("cie/reset-incident")
+    suspend fun resetCIEIncident(): Response<com.smartvendor.ai.model.CIEStatusResponse>
 }

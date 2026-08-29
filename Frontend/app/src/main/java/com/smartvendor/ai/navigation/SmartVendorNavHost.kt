@@ -54,6 +54,9 @@ fun SmartVendorNavHost(
                 },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
+                },
+                onNavigateToResilience = {
+                    navController.navigate(Screen.Resilience.route)
                 }
             )
         }
@@ -151,5 +154,12 @@ fun SmartVendorNavHost(
                 }
             )
         }
+
+        composable(Screen.Resilience.route) {
+            ResilienceScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
     }
 }
+

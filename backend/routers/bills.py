@@ -19,14 +19,18 @@ def create_bill(
     db: Session = Depends(get_db)
 ):
     """
-    Authoritative Bill / Return Creation:
+    Authoritative Bill / Return Creation with Transaction Journaling:
     1. Validates items, quantities, and conditions.
-    2. Authoritatively calculates unit prices, item line totals, subtotal, tax, and total.
-    3. Atomically updates inventory stock:
+    2. Enforces idempotency via transaction_id / bill_id.
+    3. Authoritatively calculates unit prices, line totals, subtotal, tax, and total.
+    4. Atomically updates inventory stock:
        - BILL: Deducts sold quantity from stock (stock = max(0, stock - qty))
        - RETURN + GOOD: Adds returned quantity back to stock (stock = stock + qty)
-       - RETURN + DAMAGED: Keeps stock unchanged (stock = stock + 0), recording damaged return for audit.
+       - RETURN + DAMAGED: Keeps stock unchanged (stock = stock + 0).
+    5. Appends operation to durable Transaction Journal.
     """
+    from services.resilience_manager import resilience_manager
+
     if not body.items:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -35,15 +39,30 @@ def create_bill(
 
     is_return = (body.transaction_type or "BILL").upper() == "RETURN"
     transaction_type = "RETURN" if is_return else "BILL"
+    tx_operation_type = "RETURN" if is_return else "SALE"
 
-    # Idempotent sync check: If bill with this ID already exists for user, return it
     bill_id = body.id or str(uuid.uuid4())
+    transaction_id = body.transaction_id or f"TXN_{int(datetime.utcnow().timestamp() * 1000)}_{uuid.uuid4().hex[:6]}"
+
+    # Idempotent sync check: If bill with this ID or transaction_id already exists, return it
     existing_bill = db.query(models.Bill).filter(
         models.Bill.id == bill_id,
         models.Bill.user_id == user_id
     ).first()
     if existing_bill:
         return existing_bill
+
+    if body.transaction_id:
+        existing_bill_by_tx = db.query(models.Bill).filter(
+            models.Bill.transaction_id == body.transaction_id,
+            models.Bill.user_id == user_id
+        ).first()
+        if existing_bill_by_tx:
+            return existing_bill_by_tx
+
+
+    is_blackout = resilience_manager.is_blackout_active(user_id)
+    tx_status = "PENDING" if is_blackout else "APPLIED"
 
     bill_items_to_create = []
     subtotal = 0.0
@@ -91,7 +110,7 @@ def create_bill(
             total_price=line_total,
             condition=condition
         )
-        bill_items_to_create.append((bill_item, product, item.quantity, condition))
+        bill_items_to_create.append((bill_item, product, item.quantity, condition, unit_price, line_total))
 
     # Authoritative financial totals
     subtotal = round(subtotal, 2)
@@ -101,30 +120,57 @@ def create_bill(
     bill = models.Bill(
         id=bill_id,
         user_id=user_id,
+        transaction_id=transaction_id,
         transaction_type=transaction_type,
         total_amount=total_amount,
         tax_amount=tax_amount,
         payment_mode=body.payment_mode or "cash",
         created_at=body.created_at or datetime.utcnow()
     )
+
     db.add(bill)
 
     # Step 2: Add bill items & update stock atomically
-    for bill_item, product, qty, item_cond in bill_items_to_create:
+    for bill_item, product, qty, item_cond, u_price, l_total in bill_items_to_create:
         db.add(bill_item)
+        prev_stock = product.stock if product else None
+        new_stock = prev_stock
         if product:
             if is_return:
                 if item_cond == "GOOD":
                     product.stock = product.stock + qty
+                    new_stock = product.stock
                 elif item_cond == "DAMAGED":
-                    # Damaged items are recorded on return bill but NOT added back to sellable stock
-                    pass
+                    # Damaged items recorded on return bill but NOT added back to sellable stock
+                    new_stock = product.stock
             else:
                 product.stock = max(0, product.stock - qty)
+                new_stock = product.stock
+
+        # Journal individual item movement
+        resilience_manager.record_journal_entry(
+            user_id=user_id,
+            db=db,
+            tx_type=tx_operation_type,
+            bill_id=bill_id,
+            product_id=product.id if product else None,
+            product_name=bill_item.product_name,
+            quantity=qty,
+            unit_price=u_price,
+            total_amount=l_total,
+            previous_stock=prev_stock,
+            new_stock=new_stock,
+            return_condition=item_cond,
+            status=tx_status,
+            payload_dict=body.dict(exclude_none=True),
+            transaction_id=f"{transaction_id}_{bill_item.id[:6]}",
+            timestamp=bill.created_at
+        )
 
     db.commit()
     db.refresh(bill)
     return bill
+
 
 
 

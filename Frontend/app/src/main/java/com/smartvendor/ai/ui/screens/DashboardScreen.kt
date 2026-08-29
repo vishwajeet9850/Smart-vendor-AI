@@ -41,9 +41,11 @@ fun DashboardScreen(
     onNavigateToInventory: () -> Unit,
     onNavigateToReports: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToResilience: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isBlackoutActive by com.smartvendor.ai.repository.LocalStoreManager.isBlackoutActiveFlow.collectAsState()
 
     Scaffold(
         topBar = {
@@ -51,8 +53,10 @@ fun DashboardScreen(
                 userName = uiState.userName,
                 storeName = uiState.storeName,
                 urgentAlertCount = uiState.urgentStockAlerts.size,
+                isBlackoutActive = isBlackoutActive,
                 onNotificationClick = { viewModel.toggleNotificationDialog(true) },
-                onProfileClick = { onNavigateToSettings() }
+                onProfileClick = { onNavigateToSettings() },
+                onResilienceClick = onNavigateToResilience
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -68,6 +72,57 @@ fun DashboardScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Blackout Recovery Mode Alert Banner
+                if (isBlackoutActive) {
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigateToResilience() },
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFFFEF2F2),
+                            border = BorderStroke(1.5.dp, Color(0xFFEF4444))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(Color(0xFFEF4444).copy(alpha = 0.15f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.FlashOff, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "🔴 BLACKOUT MODE ACTIVE",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color(0xFF991B1B)
+                                        )
+                                        Text(
+                                            text = "Operating safely via append-only journal. Tap to manage recovery.",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF7F1D1D)
+                                        )
+                                    }
+                                }
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color(0xFF991B1B), modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+
                 // Primary Action: New Bill / Resume Bill Card
                 item {
                     NewBillCard(
@@ -80,6 +135,7 @@ fun DashboardScreen(
                         }
                     )
                 }
+
 
                 // Grid/Row Actions
                 item {
@@ -343,8 +399,10 @@ fun DashboardTopBar(
     userName: String,
     storeName: String,
     urgentAlertCount: Int,
+    isBlackoutActive: Boolean = false,
     onNotificationClick: () -> Unit,
-    onProfileClick: () -> Unit
+    onProfileClick: () -> Unit,
+    onResilienceClick: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -372,7 +430,7 @@ fun DashboardTopBar(
                         )
                     )
                     Surface(
-                        color = AccentGreen.copy(alpha = 0.12f),
+                        color = if (isBlackoutActive) DangerRed.copy(alpha = 0.12f) else AccentGreen.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
@@ -383,12 +441,12 @@ fun DashboardTopBar(
                             Box(
                                 modifier = Modifier
                                     .size(6.dp)
-                                    .background(AccentGreen, CircleShape)
+                                    .background(if (isBlackoutActive) DangerRed else AccentGreen, CircleShape)
                             )
                             Text(
-                                text = "Smart Scanner Active",
+                                text = if (isBlackoutActive) "🔴 Recovery Mode" else "Smart Scanner Active",
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    color = AccentGreen,
+                                    color = if (isBlackoutActive) DangerRed else AccentGreen,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp
                                 )
@@ -416,8 +474,26 @@ fun DashboardTopBar(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Resilience Dashboard Icon Button
+                IconButton(
+                    onClick = onResilienceClick,
+                    modifier = Modifier
+                        .background(
+                            color = if (isBlackoutActive) Color(0xFFFEE2E2) else MaterialTheme.colorScheme.surfaceVariant,
+                            shape = CircleShape
+                        )
+                        .size(42.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isBlackoutActive) Icons.Filled.FlashOff else Icons.Filled.Shield,
+                        contentDescription = "Resilience & Recovery",
+                        tint = if (isBlackoutActive) DangerRed else AccentGreen,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
                 IconButton(
                     onClick = onNotificationClick,
                     modifier = Modifier
@@ -452,6 +528,7 @@ fun DashboardTopBar(
                         )
                     }
                 }
+
 
                 Box(
                     modifier = Modifier

@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
-    private const val BASE_URL = "http://10.88.240.180:8000/"
+    // Directly connects to the laptop backend via USB adb reverse / local bridge
+    private const val BASE_URL = "http://127.0.0.1:8000/"
 
     private val firebaseTokenInterceptor = Interceptor { chain ->
         val request = chain.request()

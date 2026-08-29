@@ -75,6 +75,7 @@ data class BillItemRequest(
 
 data class BillRequest(
     val id: String? = null,
+    @SerializedName("transaction_id") val transactionId: String? = null,
     @SerializedName("transaction_type") val transactionType: String = "BILL",
     val items: List<BillItemRequest>,
     @SerializedName("total_amount") val totalAmount: Double,
@@ -97,6 +98,7 @@ data class BillItemResponse(
 data class BillResponse(
     val id: String,
     @SerializedName("user_id") val userId: String,
+    @SerializedName("transaction_id") val transactionId: String? = null,
     @SerializedName("transaction_type") val transactionType: String = "BILL",
     @SerializedName("total_amount") val totalAmount: Double,
     @SerializedName("tax_amount") val taxAmount: Double,
@@ -104,6 +106,7 @@ data class BillResponse(
     @SerializedName("created_at") val createdAt: String,
     val items: List<BillItemResponse> = emptyList()
 )
+
 
 
 // ─── Analytics ─────────────────────────────────────────────────────────────────

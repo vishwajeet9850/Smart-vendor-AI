@@ -91,6 +91,7 @@ class BillItemCreate(BaseModel):
 
 class BillCreate(BaseModel):
     id: Optional[str] = None
+    transaction_id: Optional[str] = None
     transaction_type: Optional[str] = "BILL"  # BILL, RETURN
     items: List[BillItemCreate]
     total_amount: float
@@ -114,6 +115,7 @@ class BillItemResponse(BaseModel):
 class BillResponse(BaseModel):
     id: str
     user_id: str
+    transaction_id: Optional[str] = None
     transaction_type: str = "BILL"
     total_amount: float
     tax_amount: float
@@ -122,6 +124,7 @@ class BillResponse(BaseModel):
     items: List[BillItemResponse] = []
 
     model_config = {"from_attributes": True}
+
 
 
 
@@ -225,6 +228,72 @@ class BulkStockRecommendationResponse(BaseModel):
     overstock_count: int
     optimal_count: int
     generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ─── Blackout Challenge & Resilience Schemas ──────────────────────────────────
+
+class JournalTransactionResponse(BaseModel):
+    id: str
+    transaction_id: str
+    user_id: str
+    type: str  # SALE, RETURN, STOCK_ADJUST
+    bill_id: Optional[str] = None
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None
+    quantity: Optional[int] = 0
+    unit_price: Optional[float] = 0.0
+    total_amount: Optional[float] = 0.0
+    previous_stock: Optional[int] = None
+    new_stock: Optional[int] = None
+    return_condition: str = "GOOD"
+    status: str = "APPLIED"  # PENDING, APPLIED, RECOVERED, FAILED
+    payload_json: Optional[str] = None
+    timestamp: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SystemCheckpointResponse(BaseModel):
+    id: str
+    user_id: str
+    checkpoint_id: str
+    checkpoint_type: str = "AUTO"
+    products_count: int = 0
+    bills_count: int = 0
+    last_transaction_id: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RecoveryReport(BaseModel):
+    system_status: str = "HEALTHY"  # HEALTHY, BLACKOUT_ACTIVE, RECOVERING, RECOVERED
+    last_checkpoint_id: Optional[str] = None
+    last_checkpoint_timestamp: Optional[datetime] = None
+    transactions_discovered: int = 0
+    successfully_recovered: int = 0
+    already_present: int = 0
+    unrecoverable: int = 0
+    unrecoverable_details: List[str] = []
+    inventory_summary: List[dict] = []
+    bills_count: int = 0
+    report_generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SystemStatusResponse(BaseModel):
+    system_status: str  # HEALTHY, BLACKOUT_ACTIVE, RECOVERING, RECOVERED
+    is_blackout_active: bool = False
+    blackout_started_at: Optional[datetime] = None
+    simulated_failure_reason: Optional[str] = None
+    primary_database_status: str = "ONLINE"  # ONLINE, CORRUPTED_UNAVAILABLE
+    last_verified_checkpoint: Optional[datetime] = None
+    last_checkpoint_id: Optional[str] = None
+    total_journaled_transactions: int = 0
+    pending_recovery_count: int = 0
+    recovered_transactions_count: int = 0
+    latest_report: Optional[RecoveryReport] = None
+
 
 
 

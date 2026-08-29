@@ -218,7 +218,7 @@ fun ReportsScreen(
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
                                                         text = rec.productName,
-                                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
                                                     )

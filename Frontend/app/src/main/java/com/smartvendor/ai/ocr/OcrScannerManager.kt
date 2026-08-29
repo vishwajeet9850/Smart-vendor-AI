@@ -178,13 +178,14 @@ class OcrScannerManager {
             .split(wordSplitRegex)
             .filter { it.length >= 2 && it !in finePrintNoise }
 
-        val topTitle = if (validLines.isNotEmpty()) {
+        val rawTopTitle = if (validLines.isNotEmpty()) {
             validLines.maxByOrNull {
                 (it.boundingBox?.width() ?: 0) * (it.boundingBox?.height() ?: 0)
             }?.text?.trim() ?: ""
         } else {
             ""
         }
+        val topTitle = cleanOcrTitle(rawTopTitle)
 
         return OcrResult(
             dominantBrandKeywords = brandWords,
@@ -193,6 +194,52 @@ class OcrScannerManager {
             detectedPrice = detectedPrice,
             quantityUnit = detectedUnit
         )
+    }
+
+    companion object {
+        fun cleanOcrTitle(raw: String): String {
+            if (raw.isBlank()) return ""
+            var clean = raw.trim()
+            val lower = clean.lowercase(Locale.getDefault())
+
+            // 1. Direct trained YOLO class overrides
+            if (lower.contains("oreo")) return "Oreo"
+            if (lower.contains("jim") && lower.contains("jam")) return "Jim Jam"
+            if (lower.contains("hide") && lower.contains("seek")) return "Hide & Seek"
+            if (lower.contains("soya") && lower.contains("stick")) return "Soya Sticks"
+            if (lower.contains("appy") && lower.contains("fizz")) return "Appy Fizz"
+            if (lower.contains("surf") && lower.contains("excel")) return "Surf Excel"
+            if (lower.contains("maggi")) return "Maggi"
+            if (lower.contains("nivea")) return "Nivea Deodorant"
+            if (lower.contains("tresemme")) return "Tresemme Shampoo"
+
+            // 2. Remove trailing weight / grammage / volume / packaging specs
+            clean = clean.replace(Regex("""(?i)\b\d+(?:\.\d+)?\s*(?:ml|l|ltr|litre|g|gm|kg|pcs|pc|pack|sachet|pouch|tablet|tabs|biscuit|biscuits|noodles|powder|bottle|can|box)\b.*"""), "").trim()
+            clean = clean.replace(Regex("""(?i)\b(?:pack of \d+|buy \d+ get \d+|free|extra|off|rs\.?|mrp|₹)\b.*"""), "").trim()
+
+            // 3. Remove lengthy marketing words
+            clean = clean.replace(Regex("""(?i)\b(sparkling|instant|masala|original|pure|fresh|premium|crispy|classic|delicious|crunchy|creme|cream|toned|full cream|double toned|refined|iodised|iodized|easy wash|washing|keratin smooth|germ protection)\b"""), "").trim()
+
+            // 4. Strip punctuation and excessive spaces
+            clean = clean.replace(Regex("""^[^\w]+|[^\w]+$"""), "").trim()
+            clean = clean.replace(Regex("""\s+"""), " ")
+
+            // Limit to at most 2-3 prominent words (the big front text)
+            val tokens = clean.split(" ").filter { it.isNotBlank() }
+            if (tokens.size > 3) {
+                clean = tokens.take(3).joinToString(" ")
+            }
+
+            if (clean.length < 2) {
+                val rawTokens = raw.trim().split(" ").filter { it.isNotBlank() }
+                clean = rawTokens.take(2).joinToString(" ")
+            }
+
+            // Title-case capitalization
+            return clean.split(" ").filter { it.isNotBlank() }.joinToString(" ") { word ->
+                word.lowercase(Locale.getDefault()).replaceFirstChar { it.uppercase(Locale.getDefault()) }
+            }
+        }
     }
 
     /**

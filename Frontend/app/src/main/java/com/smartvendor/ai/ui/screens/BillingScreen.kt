@@ -96,7 +96,25 @@ fun BillingScreen(
                                 )
                             }
                         }
+                        val isBlackoutActive by com.smartvendor.ai.repository.LocalStoreManager.isBlackoutActiveFlow.collectAsState()
+                        if (isBlackoutActive) {
+                            Surface(
+                                color = Color(0xFFFEE2E2),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "JOURNAL MODE",
+                                    color = Color(0xFFDC2626),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
                     }
+
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
