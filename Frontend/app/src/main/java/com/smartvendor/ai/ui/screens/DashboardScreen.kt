@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smartvendor.ai.ui.theme.BlueDark
 import com.smartvendor.ai.ui.theme.BluePrimary
+import com.smartvendor.ai.ui.theme.RedPrimary
 import com.smartvendor.ai.ui.theme.AccentGreen
 import com.smartvendor.ai.ui.theme.DangerRed
 import com.smartvendor.ai.ui.theme.ElectricCyan
@@ -207,6 +208,101 @@ fun DashboardScreen(
                             modifier = Modifier.weight(1f),
                             onClick = onNavigateToSettings
                         )
+                    }
+                }
+
+                // ─── AI Restock Recommendations & Seasonal Intelligence ──────
+                if (uiState.stockRecommendations.isNotEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "AI Restock Recommendations",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                )
+                                Surface(
+                                    color = RedPrimary.copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "7-Day AI Forecast",
+                                        color = RedPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = { viewModel.refreshStockRecommendations() },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Refresh",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    items(uiState.stockRecommendations.take(6)) { rec ->
+                        StockRecommendationCard(
+                            rec = rec,
+                            onQuickRestock = { pId, qty ->
+                                viewModel.quickRestockRecommended(pId, qty)
+                            }
+                        )
+                    }
+                }
+
+                // ─── Cross-Vendor Market Demand Opportunities ─────────────────
+                if (uiState.marketTrends.isNotEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Market Demand Opportunities",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                            )
+                            Surface(
+                                color = Color(0xFFFF9800).copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "🌐 Partner Network",
+                                    color = Color(0xFFFF9800),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    items(uiState.marketTrends.take(3)) { trend ->
+                        MarketTrendCard(trend = trend)
                     }
                 }
             }
@@ -738,6 +834,309 @@ fun UrgentStockNotificationSheet(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+fun StockRecommendationCard(
+    rec: com.smartvendor.ai.network.models.StockRecommendationResponse,
+    onQuickRestock: (String, Int) -> Unit
+) {
+    val statusColor = when (rec.recommendationType) {
+        "URGENT_RESTOCK" -> Color(0xFFD32F2F)
+        "FESTIVAL_SURGE" -> Color(0xFFE65100)
+        "MARKET_TREND" -> Color(0xFF0288D1)
+        "LOW_STOCK_BUFFER" -> Color(0xFFF59E0B)
+        "NEAR_EXPIRY" -> Color(0xFF7B1FA2)
+        "OVERSTOCK_CLEARANCE" -> Color(0xFF3B82F6)
+        "BUNDLE_OPPORTUNITY" -> Color(0xFF00796B)
+        else -> Color(0xFF10B981)
+    }
+
+    val statusBg = statusColor.copy(alpha = 0.10f)
+
+    val trendIcon = when (rec.trend) {
+        "INCREASING" -> "↑ Increasing"
+        "DECREASING" -> "↓ Decreasing"
+        else -> "→ Stable"
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.25f)),
+        shadowElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Header: Product Name + Status Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = rec.productName,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = rec.category,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
+
+                Surface(
+                    color = statusBg,
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = rec.recommendationTitle.ifBlank {
+                            when (rec.status) {
+                                "RESTOCK" -> "🔴 RESTOCK"
+                                "LOW_STOCK" -> "🟡 LOW STOCK"
+                                "OVERSTOCK" -> "🔵 OVERSTOCK"
+                                else -> "🟢 STOCK OK"
+                            }
+                        },
+                        color = statusColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // Key Metrics Row: Stock vs Expected Demand
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Current Stock",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                    Text(
+                        text = "${rec.currentStock} ${rec.unit}",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = if (rec.currentStock <= 5) DangerRed else MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Expected 7-Day Demand",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                    Text(
+                        text = "${rec.predictedDemand} ${rec.unit}",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "Trend",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                    Text(
+                        text = trendIcon,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = if (rec.trend == "INCREASING") AccentGreen else MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                }
+            }
+
+            // Badges Row: Seasonality & Market Demand
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (rec.seasonalFactor >= 1.15) {
+                    Surface(
+                        color = Color(0xFFFEF3C7),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "☀️ High Season",
+                            color = Color(0xFFD97706),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                if (rec.market.marketInsightAvailable) {
+                    val marketBadgeColor = when (rec.market.demandLevel) {
+                        "VERY_HIGH" -> Color(0xFFDC2626)
+                        "HIGH" -> Color(0xFFEA580C)
+                        else -> Color(0xFF059669)
+                    }
+                    val marketBg = when (rec.market.demandLevel) {
+                        "VERY_HIGH" -> Color(0xFFFEE2E2)
+                        "HIGH" -> Color(0xFFFFEDD5)
+                        else -> Color(0xFFD1FAE5)
+                    }
+
+                    Surface(
+                        color = marketBg,
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = when (rec.market.demandLevel) {
+                                "VERY_HIGH" -> "🔥 Market: Very High"
+                                "HIGH" -> "📈 Market: High"
+                                else -> "⚖️ Market: Normal"
+                            },
+                            color = marketBadgeColor,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            // Plain-English Reason Text
+            Text(
+                text = rec.simpleReason.ifBlank { rec.reason },
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            )
+
+            // Restock Action Button or Contextual Badge
+            if (rec.recommendedPurchase > 0 && rec.actionType in listOf("RESTOCK", "REORDER", "FESTIVAL_ORDER", "MARKET_ORDER")) {
+                Button(
+                    onClick = { onQuickRestock(rec.productId, rec.recommendedPurchase) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = statusColor),
+                    contentPadding = PaddingValues(vertical = 10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.ShoppingCartCheckout,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = rec.actionLabel.ifBlank { "Reorder +${rec.recommendedPurchase} ${rec.unit}" },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            } else {
+                Surface(
+                    color = statusBg,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Action: ${rec.actionLabel.ifBlank { "No Action Required" }}",
+                        color = statusColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun MarketTrendCard(
+    trend: com.smartvendor.ai.network.models.MarketTrendInsight
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFFFFFBEB),
+        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(Color(0xFFF59E0B).copy(alpha = 0.15f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.TrendingUp,
+                    contentDescription = null,
+                    tint = Color(0xFFD97706),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = trend.title,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF92400E)
+                        )
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = trend.description,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = Color(0xFF78350F),
+                        fontSize = 12.sp
+                    )
+                )
+            }
         }
     }
 }

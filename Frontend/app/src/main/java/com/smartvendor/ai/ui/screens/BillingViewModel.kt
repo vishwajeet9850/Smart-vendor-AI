@@ -2,6 +2,7 @@ package com.smartvendor.ai.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.smartvendor.ai.ai.ScanCooldownManager
 import com.smartvendor.ai.model.Bill
 import com.smartvendor.ai.model.BillItem
 import com.smartvendor.ai.repository.LocalStoreManager
@@ -56,6 +57,7 @@ class BillingViewModel(
 
         for (vItem in voiceItems) {
             val prod = vItem.matchedProduct ?: continue
+            ScanCooldownManager.markAdded(prod)
             val existingIndex = currentItems.indexOfFirst { it.productId == prod.id }
 
             if (existingIndex >= 0) {
@@ -89,20 +91,28 @@ class BillingViewModel(
 
     fun increaseItemQuantity(productId: String) {
         val currentBill = _uiState.value.bill ?: return
-        val updatedItems = currentBill.items.map { item ->
-            if (item.productId == productId) {
-                val newQty = item.quantity + 1
-                item.copy(
+        val item = currentBill.items.firstOrNull { it.productId == productId }
+        if (item != null) {
+            ScanCooldownManager.markAdded(item.productId, item.name)
+        }
+        val updatedItems = currentBill.items.map { itm ->
+            if (itm.productId == productId) {
+                val newQty = itm.quantity + 1
+                itm.copy(
                     quantity = newQty,
-                    lineTotal = (newQty * item.unitPrice) + (((newQty * item.unitPrice) * item.gst) / 100.0)
+                    lineTotal = (newQty * itm.unitPrice) + (((newQty * itm.unitPrice) * itm.gst) / 100.0)
                 )
-            } else item
+            } else itm
         }
         recalculateBill(currentBill, updatedItems)
     }
 
     fun decreaseItemQuantity(productId: String) {
         val currentBill = _uiState.value.bill ?: return
+        val itemToDecrease = currentBill.items.firstOrNull { it.productId == productId }
+        if (itemToDecrease != null && itemToDecrease.quantity <= 1) {
+            ScanCooldownManager.markRemoved(itemToDecrease.productId, itemToDecrease.name)
+        }
         val updatedItems = currentBill.items.mapNotNull { item ->
             if (item.productId == productId) {
                 if (item.quantity > 1) {
@@ -119,9 +129,38 @@ class BillingViewModel(
 
     fun removeItem(productId: String) {
         val currentBill = _uiState.value.bill ?: return
+        val itemToRemove = currentBill.items.firstOrNull { it.productId == productId }
+        if (itemToRemove != null) {
+            ScanCooldownManager.markRemoved(itemToRemove.productId, itemToRemove.name)
+        }
         val updatedItems = currentBill.items.filterNot { it.productId == productId }
         recalculateBill(currentBill, updatedItems)
     }
+
+    fun setItemCondition(productId: String, condition: String) {
+        val currentBill = _uiState.value.bill ?: return
+        val updatedItems = currentBill.items.map { item ->
+            if (item.productId == productId) {
+                item.copy(condition = condition)
+            } else item
+        }
+        val updatedBill = currentBill.copy(items = updatedItems)
+        _uiState.update { it.copy(bill = updatedBill) }
+        viewModelScope.launch {
+            salesRepository.saveBill(updatedBill)
+        }
+    }
+
+    fun setTransactionType(type: String) {
+        val currentBill = _uiState.value.bill ?: return
+        if (currentBill.transactionType == type) return
+        val updatedBill = currentBill.copy(transactionType = type)
+        _uiState.update { it.copy(bill = updatedBill) }
+        viewModelScope.launch {
+            salesRepository.saveBill(updatedBill)
+        }
+    }
+
 
     private fun recalculateBill(currentBill: Bill, items: List<BillItem>) {
         val subtotal = items.sumOf { it.quantity * it.unitPrice }

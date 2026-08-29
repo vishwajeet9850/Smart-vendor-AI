@@ -27,7 +27,8 @@ class TFLiteClassifier(private val context: Context) {
     private var labels: List<String> = listOf("appe_fizz", "haldiram_soya_stick", "hide_and_seek", "jim_jam", "maggi", "nivea_deodorant", "oreo", "surf_excel", "tresemme_shampoo")
     private var isInitialized = false
     private val modelInputSize = 640
-    private val numClasses = 9
+    private var numClasses = 9
+    private var numChannels = 13
     private val numPredictions = 8400
 
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
@@ -35,6 +36,8 @@ class TFLiteClassifier(private val context: Context) {
             if (isInitialized) return@withContext Result.success(Unit)
 
             labels = loadLabels()
+            numClasses = labels.size
+            numChannels = 4 + numClasses
             val modelBuffer = loadModelFile()
             if (modelBuffer != null) {
                 val options = Interpreter.Options().apply {
@@ -43,7 +46,7 @@ class TFLiteClassifier(private val context: Context) {
                 interpreter = Interpreter(modelBuffer, options)
                 warmUpModel()
                 isInitialized = true
-                Log.d(TAG, "On-device YOLO TFLite loaded (Classes: ${labels.joinToString()})")
+                Log.d(TAG, "On-device YOLO TFLite loaded (Classes: ${labels.joinToString()}, Channels: $numChannels)")
                 Result.success(Unit)
             } else {
                 Log.w(TAG, "Model file best.tflite not found in assets.")
@@ -85,7 +88,7 @@ class TFLiteClassifier(private val context: Context) {
                 val dummyInput = java.nio.ByteBuffer.allocateDirect(4 * modelInputSize * modelInputSize * 3)
                 dummyInput.order(java.nio.ByteOrder.nativeOrder())
                 val outputMap = HashMap<Int, Any>()
-                val dummyOutput = Array(1) { Array(10) { FloatArray(numPredictions) } }
+                val dummyOutput = Array(1) { Array(numChannels) { FloatArray(numPredictions) } }
                 outputMap[0] = dummyOutput
                 it.runForMultipleInputsOutputs(arrayOf(dummyInput), outputMap)
             } catch (e: Exception) {
@@ -99,7 +102,7 @@ class TFLiteClassifier(private val context: Context) {
         val interp = interpreter ?: return@withContext emptyList()
 
         val letterbox = YoloUtils.letterboxBitmap(bitmap, modelInputSize)
-        val outputArray = Array(1) { Array(10) { FloatArray(numPredictions) } }
+        val outputArray = Array(1) { Array(numChannels) { FloatArray(numPredictions) } }
         val outputMap = HashMap<Int, Any>()
         outputMap[0] = outputArray
 
@@ -111,7 +114,7 @@ class TFLiteClassifier(private val context: Context) {
         }
 
         val rawDetections = mutableListOf<DetectionResult>()
-        val predictions = outputArray[0] // [10][8400]
+        val predictions = outputArray[0] // [numChannels][8400]
 
         val r = letterbox.scale
         val padX = letterbox.padX

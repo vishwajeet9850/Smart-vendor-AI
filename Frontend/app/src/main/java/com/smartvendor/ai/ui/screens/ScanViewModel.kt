@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.smartvendor.ai.ai.ScanCooldownManager
 import com.smartvendor.ai.ai.YoloDetectionRepository
 import com.smartvendor.ai.ai.YoloUtils
 import com.smartvendor.ai.barcode.BarcodeScannerManager
@@ -27,7 +28,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class ScanUiState(
@@ -60,19 +60,13 @@ class ScanViewModel(
     private val barcodeScanner = BarcodeScannerManager()
     private val ocrScanner = OcrScannerManager()
 
-    // 8-second strict cooldown per product
-    private val addedCooldownMs = 8000L
-    private val ignoredCooldownMs = 10000L
     private val globalAddDebounceMs = 1500L
-
-    private val recentlyAddedTimestampMap = ConcurrentHashMap<String, Long>()
-    private val ignoredTimestampMap = ConcurrentHashMap<String, Long>()
     private var lastGlobalAddTimestamp: Long = 0L
 
     // In-Flight lock to prevent parallel frame processing
     private val isFrameProcessingLock = AtomicBoolean(false)
 
-    val confidenceThreshold = 0.58f
+    val confidenceThreshold = 0.50f
 
     // 9 YOLO fine-tuned classes
     private val labelToProductMap = mapOf(
@@ -107,6 +101,11 @@ class ScanViewModel(
         val currentId = _uiState.value.currentBill?.billId
         if (!currentId.isNullOrBlank()) {
             loadBill(currentId)
+        } else {
+            val currentBill = _uiState.value.currentBill
+            if (currentBill != null) {
+                ScanCooldownManager.refreshCooldownsForBill(currentBill)
+            }
         }
     }
 
@@ -116,11 +115,11 @@ class ScanViewModel(
             salesRepository.getBillById(validId).onSuccess { bill ->
                 if (bill != null) {
                     _uiState.update { it.copy(currentBill = bill) }
+                    ScanCooldownManager.refreshCooldownsForBill(bill)
                 } else {
                     val newBill = Bill(billId = validId, items = emptyList(), subtotal = 0.0, gst = 0.0, grandTotal = 0.0)
                     salesRepository.saveBill(newBill)
-                    recentlyAddedTimestampMap.clear()
-                    ignoredTimestampMap.clear()
+                    ScanCooldownManager.clear()
                     _uiState.update { it.copy(currentBill = newBill) }
                 }
             }.onFailure {
@@ -130,6 +129,17 @@ class ScanViewModel(
             }
         }
     }
+
+    fun setTransactionType(type: String) {
+        val current = _uiState.value.currentBill ?: return
+        if (current.transactionType == type) return
+        val updated = current.copy(transactionType = type)
+        _uiState.update { it.copy(currentBill = updated) }
+        viewModelScope.launch {
+            salesRepository.saveBill(updated)
+        }
+    }
+
 
     fun openVoiceDialog() {
         _uiState.update { it.copy(showVoiceDialog = true) }
@@ -145,6 +155,7 @@ class ScanViewModel(
 
         for (vItem in voiceItems) {
             val prod = vItem.matchedProduct ?: continue
+            ScanCooldownManager.markAdded(prod)
             val existingIndex = currentItems.indexOfFirst { it.productId == prod.id }
 
             if (existingIndex >= 0) {
@@ -291,6 +302,7 @@ class ScanViewModel(
     /**
      * Smart AI: Adds ONLY products detected by YOLO.
      * OCR is used solely for confirmation/filtering to eliminate false predictions (e.g. BRU coffee being guessed as Haldiram).
+     * Cooldown is checked against ScanCooldownManager so added/removed items are not repeatedly scanned.
      */
     private fun handleYoloWithOcrConfirmation(bitmap: Bitmap, ocrResult: OcrResult?) {
         viewModelScope.launch {
@@ -319,10 +331,14 @@ class ScanViewModel(
 
                     val newProductsToAdd = mutableListOf<Product>()
                     val scannedTextLower = ocrResult?.fullScannedText?.lowercase() ?: ""
-                    val brandTokens = ocrResult?.dominantBrandKeywords ?: emptyList()
 
                     for (det in detections) {
                         val labelClean = det.label.lowercase().trim()
+
+                        // Check if YOLO class label is in cooldown
+                        if (ScanCooldownManager.isLabelInCooldown(labelClean)) {
+                            continue
+                        }
 
                         // OCR Confirmation Filter:
                         // If OCR detects contradictory text on the packet, discard YOLO prediction!
@@ -355,28 +371,14 @@ class ScanViewModel(
                         // YOLO-only product candidate
                         val matchedProduct = findProductForLabel(labelClean, storeProducts) ?: continue
 
-                        val pId = matchedProduct.id
-                        val pNameLower = matchedProduct.name.lowercase()
+                        // Check if the matched product is in cooldown
+                        if (ScanCooldownManager.isProductInCooldown(matchedProduct)) {
+                            continue
+                        }
 
-                        val lastAddedTime = maxOf(
-                            recentlyAddedTimestampMap[pId] ?: 0L,
-                            recentlyAddedTimestampMap[pNameLower] ?: 0L,
-                            recentlyAddedTimestampMap[labelClean] ?: 0L
-                        )
-                        val lastIgnoredTime = maxOf(
-                            ignoredTimestampMap[pId] ?: 0L,
-                            ignoredTimestampMap[pNameLower] ?: 0L,
-                            ignoredTimestampMap[labelClean] ?: 0L
-                        )
-
-                        // 8.0s anti-spam cooldown check per product
-                        if (now - lastIgnoredTime >= ignoredCooldownMs && now - lastAddedTime >= addedCooldownMs) {
-                            if (newProductsToAdd.none { it.id == matchedProduct.id }) {
-                                newProductsToAdd.add(matchedProduct)
-                                recentlyAddedTimestampMap[pId] = now
-                                recentlyAddedTimestampMap[pNameLower] = now
-                                recentlyAddedTimestampMap[labelClean] = now
-                            }
+                        if (newProductsToAdd.none { it.id == matchedProduct.id }) {
+                            newProductsToAdd.add(matchedProduct)
+                            ScanCooldownManager.markAdded(matchedProduct.id, matchedProduct.name, matchedProduct.barcode, labelClean)
                         }
                     }
 
@@ -414,8 +416,11 @@ class ScanViewModel(
                     threshold = 0.20f
                 )
 
-                if (rankedMatches.isNotEmpty()) {
-                    val storeMatch = rankedMatches.first()
+                // Filter out any matches currently under cooldown
+                val availableMatches = rankedMatches.filterNot { ScanCooldownManager.isProductInCooldown(it) }
+
+                if (availableMatches.isNotEmpty()) {
+                    val storeMatch = availableMatches.first()
                     _uiState.update {
                         it.copy(
                             detectedProduct = storeMatch,
@@ -430,7 +435,10 @@ class ScanViewModel(
                 val prefillTitle = ocrResult.topBrandTitle.ifBlank { ocrResult.dominantBrandKeywords.take(3).joinToString(" ") }
                 val prefillPrice = ocrResult.detectedPrice?.let { "%.2f".format(it) } ?: ""
 
-                if (prefillTitle.isNotBlank() || prefillPrice.isNotBlank()) {
+                val isPrefillCooledDown = ScanCooldownManager.isTextInCooldown(prefillTitle) ||
+                        ScanCooldownManager.isCooldownActive(null, prefillTitle)
+
+                if (!isPrefillCooledDown && (prefillTitle.isNotBlank() || prefillPrice.isNotBlank())) {
                     val statusDesc = if (prefillPrice.isNotBlank()) {
                         "OCR Scanned: '$prefillTitle' (₹$prefillPrice)"
                     } else {
@@ -459,6 +467,7 @@ class ScanViewModel(
         val items = currentBillState.items.toMutableList()
 
         for (prod in products) {
+            ScanCooldownManager.markAdded(prod)
             val index = items.indexOfFirst { it.productId == prod.id || it.name.equals(prod.name, ignoreCase = true) }
             if (index >= 0) {
                 val old = items[index]
@@ -532,8 +541,7 @@ class ScanViewModel(
         val prod = _uiState.value.detectedProduct ?: return
         val qty = _uiState.value.selectedQuantity
         val now = System.currentTimeMillis()
-        recentlyAddedTimestampMap[prod.id] = now
-        recentlyAddedTimestampMap[prod.name.lowercase()] = now
+        ScanCooldownManager.markAdded(prod)
 
         val currentBillState = _uiState.value.currentBill ?: Bill(billId = "BILL_${System.currentTimeMillis()}")
         val items = currentBillState.items.toMutableList()
@@ -580,10 +588,8 @@ class ScanViewModel(
 
     fun cancelDetectedProduct() {
         val prod = _uiState.value.detectedProduct
-        val now = System.currentTimeMillis()
         if (prod != null) {
-            ignoredTimestampMap[prod.id] = now
-            ignoredTimestampMap[prod.name.lowercase()] = now
+            ScanCooldownManager.markRemoved(prod)
         }
         _uiState.update {
             it.copy(
@@ -605,13 +611,11 @@ class ScanViewModel(
         val lastAddedList = _uiState.value.lastAddedProducts
         if (lastAddedList.isEmpty()) return
         val currentBill = _uiState.value.currentBill ?: return
-        val now = System.currentTimeMillis()
 
         val items = currentBill.items.toMutableList()
 
         for (lastAdded in lastAddedList) {
-            ignoredTimestampMap[lastAdded.id] = now
-            ignoredTimestampMap[lastAdded.name.lowercase()] = now
+            ScanCooldownManager.markRemoved(lastAdded)
 
             val index = items.indexOfLast { it.productId == lastAdded.id || it.name.equals(lastAdded.name, ignoreCase = true) }
             if (index >= 0) {
@@ -659,9 +663,12 @@ class ScanViewModel(
         val currentBillState = _uiState.value.currentBill ?: Bill(billId = "BILL_${System.currentTimeMillis()}")
         val items = currentBillState.items.toMutableList()
 
+        val customId = "CUSTOM_${System.currentTimeMillis()}"
+        ScanCooldownManager.markAdded(productId = customId, productName = name)
+
         items.add(
             BillItem(
-                productId = "CUSTOM_${System.currentTimeMillis()}",
+                productId = customId,
                 name = name,
                 quantity = quantity,
                 unitPrice = price
@@ -692,3 +699,4 @@ class ScanViewModel(
         }
     }
 }
+

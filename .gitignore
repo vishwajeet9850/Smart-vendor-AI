@@ -37,3 +37,8 @@ Thumbs.db
 # Sensitive & Backup Files
 Backup-codes-*.txt
 *.db
+*.db-shm
+*.db-wal
+*.pytest_cache/
+backend/models/saved_model_out/
+

@@ -14,7 +14,13 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 /**
@@ -30,9 +36,11 @@ object LocalStoreManager {
     private const val TAG = "LocalStoreManager"
     private val gson = Gson()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val syncMutex = Mutex()
 
     private var appContext: Context? = null
     private var isInitialized = false
+
 
     // State flows for real-time UI updates
     private val _productsFlow = MutableStateFlow<List<Product>>(emptyList())
@@ -43,6 +51,15 @@ object LocalStoreManager {
 
     private val _billsFlow = MutableStateFlow<List<Bill>>(emptyList())
     val billsFlow: StateFlow<List<Bill>> = _billsFlow.asStateFlow()
+
+    private val _isOnlineFlow = MutableStateFlow(true)
+    val isOnlineFlow: StateFlow<Boolean> = _isOnlineFlow.asStateFlow()
+
+    fun setOnlineStatus(online: Boolean) {
+        _isOnlineFlow.value = online
+    }
+
+    fun isOnline(): Boolean = _isOnlineFlow.value
 
     // In-memory master catalog (6,000 reference products)
     private var masterCatalogList: List<MasterCatalogResponse> = emptyList()
@@ -369,12 +386,21 @@ object LocalStoreManager {
         _billsFlow.value = currentBills
         saveBillsToDisk(currentBills)
 
-        // If completed bill, immediately deduct stock in local inventory
+        // If completed bill / return, immediately update stock in local inventory
         if (bill.status == Bill.BILL_STATUS_COMPLETED) {
+            val isReturn = bill.transactionType == Bill.TRANSACTION_TYPE_RETURN
             bill.items.forEach { item ->
                 val product = getProductById(item.productId)
                 if (product != null) {
-                    val newStock = (product.stock - item.quantity).coerceAtLeast(0)
+                    val newStock = if (isReturn) {
+                        if (item.condition == BillItem.CONDITION_GOOD) {
+                            product.stock + item.quantity
+                        } else {
+                            product.stock // Damaged items do not increase sellable stock
+                        }
+                    } else {
+                        (product.stock - item.quantity).coerceAtLeast(0)
+                    }
                     updateStock(product.id, newStock)
                 }
             }
@@ -386,6 +412,7 @@ object LocalStoreManager {
             scope.launch { syncWithServer() }
         }
     }
+
 
     // -------------------------------------------------------------------------
     // 5. Store Profile Operations
@@ -409,9 +436,14 @@ object LocalStoreManager {
     // -------------------------------------------------------------------------
 
     suspend fun syncWithServer() = withContext(Dispatchers.IO) {
-        val api = ApiClient.apiService
+        if (!syncMutex.tryLock()) {
+            // Already syncing in another coroutine, skip redundant parallel run
+            return@withContext
+        }
 
         try {
+            val api = ApiClient.apiService
+
             // 1. Sync Pending Product Deletions
             val deletionsToProcess = synchronized(syncQueue) { syncQueue.pendingProductDeletions.toList() }
             for (prodId in deletionsToProcess) {
@@ -465,30 +497,39 @@ object LocalStoreManager {
                 } catch (_: Exception) {}
             }
 
-            // 4. Sync Pending Bills
+            // 4. Sync Pending Bills (with Client ID & Exact Timestamp for Idempotency)
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
             val billsToProcess = synchronized(syncQueue) { syncQueue.pendingBills.toList() }
             for (b in billsToProcess) {
                 try {
+                    val formattedCreated = if (b.timestamp > 0) isoFormat.format(Date(b.timestamp)) else null
                     val billReq = BillRequest(
+                        id = b.billId.ifBlank { null },
+                        transactionType = b.transactionType,
                         items = b.items.map { item ->
                             BillItemRequest(
                                 productId = item.productId.ifBlank { null },
                                 productName = item.name,
                                 quantity = item.quantity,
                                 unitPrice = item.unitPrice,
-                                totalPrice = item.lineTotal
+                                totalPrice = item.lineTotal,
+                                condition = item.condition
                             )
                         },
                         totalAmount = b.grandTotal,
                         taxAmount = b.gst,
-                        paymentMode = b.paymentMethod.lowercase()
+                        paymentMode = b.paymentMethod.lowercase(),
+                        createdAt = formattedCreated
                     )
                     val res = api.createBill(billReq)
-                    if (res.isSuccessful) {
-                        synchronized(syncQueue) { syncQueue.pendingBills.remove(b) }
+                    if (res.isSuccessful || res.code() == 409) {
+                        synchronized(syncQueue) { syncQueue.pendingBills.removeAll { it.billId == b.billId } }
                     }
                 } catch (_: Exception) {}
             }
+
 
             // 5. Sync Pending Store Info
             val storeToProcess = synchronized(syncQueue) { syncQueue.pendingStore }
@@ -509,6 +550,7 @@ object LocalStoreManager {
             }
 
             saveSyncQueue()
+
 
             // 6. Safe Bidirectional Merge of Products with Unique ID Assurance
             try {
@@ -552,6 +594,9 @@ object LocalStoreManager {
 
         } catch (e: Exception) {
             Log.d(TAG, "Server offline or unreachable, continuing in standalone offline mode.")
+        } finally {
+            syncMutex.unlock()
         }
     }
 }
+

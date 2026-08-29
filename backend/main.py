@@ -6,10 +6,12 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import models
-from database import engine, Base, get_db, SessionLocal
+from database import engine, Base, get_db, SessionLocal, run_migrations
 
-# Create all tables on startup
+# Create all tables on startup & apply safe idempotent migrations
 Base.metadata.create_all(bind=engine)
+run_migrations()
+
 
 app = FastAPI(
     title="SmartVendor AI API",
@@ -32,7 +34,7 @@ app.add_middleware(
 )
 
 # Register routers
-from routers import products, bills, analytics, store, catalog, detect, voice
+from routers import products, bills, analytics, store, catalog, detect, voice, stock
 app.include_router(products.router)
 app.include_router(bills.router)
 app.include_router(analytics.router)
@@ -40,6 +42,7 @@ app.include_router(store.router)
 app.include_router(catalog.router)
 app.include_router(detect.router)
 app.include_router(voice.router)
+app.include_router(stock.router)
 
 
 @app.get("/", tags=["Health"])

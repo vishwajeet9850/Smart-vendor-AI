@@ -84,17 +84,36 @@ fun ScanScreen(
         viewModel.initialize(context, billId)
     }
 
+    val isReturn = uiState.currentBill?.transactionType == com.smartvendor.ai.model.Bill.TRANSACTION_TYPE_RETURN
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (isReturn) "Product Return Scanner" else "Smart POS Scanner",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            if (isReturn) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = Color(0xFFD32F2F),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = "RETURN",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                         Text(
-                            text = "Smart POS Scanner",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                        Text(
-                            text = "Bill #${billId.takeLast(6)}",
+                            text = if (isReturn) "Return #${billId.takeLast(6)}" else "Bill #${billId.takeLast(6)}",
                             style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                         )
                     }
@@ -106,7 +125,7 @@ fun ScanScreen(
                 },
                 actions = {
                     IconButton(onClick = { viewModel.openManualEntryDialog() }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Manually", tint = RedPrimary)
+                        Icon(Icons.Default.Add, contentDescription = "Add Manually", tint = if (isReturn) Color(0xFFD32F2F) else RedPrimary)
                     }
                 }
             )
@@ -134,34 +153,74 @@ fun ScanScreen(
                     BarcodeTargetOverlay()
                 }
 
-                // Top Mode Toggle Bar
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                    shape = RoundedCornerShape(16.dp),
+                // Top Controls Column: Transaction Type Selector & Scan Mode Bar
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(12.dp)
+                        .padding(top = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // 1. Transaction Type Selector: [ Billing ] [ Return ]
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                        shape = RoundedCornerShape(20.dp),
+                        shadowElevation = 6.dp,
+                        tonalElevation = 4.dp
                     ) {
-                        FilterChip(
-                            selected = !uiState.isBarcodeActive && !uiState.isOcrActive,
-                            onClick = { viewModel.toggleScanMode(useOcr = false) },
-                            label = { Text("Smart AI") }
-                        )
-                        FilterChip(
-                            selected = uiState.isBarcodeActive,
-                            onClick = { viewModel.toggleBarcodeMode(!uiState.isBarcodeActive) },
-                            label = { Text("Barcode") }
-                        )
-                        FilterChip(
-                            selected = uiState.isOcrActive,
-                            onClick = { viewModel.toggleScanMode(useOcr = !uiState.isOcrActive) },
-                            label = { Text("Price/OCR") }
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilterChip(
+                                selected = !isReturn,
+                                onClick = { viewModel.setTransactionType(com.smartvendor.ai.model.Bill.TRANSACTION_TYPE_BILL) },
+                                label = { Text("🛒 Billing", fontWeight = if (!isReturn) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = AccentGreen.copy(alpha = 0.18f),
+                                    selectedLabelColor = AccentGreen
+                                )
+                            )
+                            FilterChip(
+                                selected = isReturn,
+                                onClick = { viewModel.setTransactionType(com.smartvendor.ai.model.Bill.TRANSACTION_TYPE_RETURN) },
+                                label = { Text("🔄 Return", fontWeight = if (isReturn) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFD32F2F),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+
+                    // 2. Detection Mode Toggle Bar (AI, Barcode, OCR)
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+                        shape = RoundedCornerShape(16.dp),
+                        shadowElevation = 4.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilterChip(
+                                selected = !uiState.isBarcodeActive && !uiState.isOcrActive,
+                                onClick = { viewModel.toggleScanMode(useOcr = false) },
+                                label = { Text("Smart AI") }
+                            )
+                            FilterChip(
+                                selected = uiState.isBarcodeActive,
+                                onClick = { viewModel.toggleBarcodeMode(!uiState.isBarcodeActive) },
+                                label = { Text("Barcode") }
+                            )
+                            FilterChip(
+                                selected = uiState.isOcrActive,
+                                onClick = { viewModel.toggleScanMode(useOcr = !uiState.isOcrActive) },
+                                label = { Text("Price/OCR") }
+                            )
+                        }
                     }
                 }
 
@@ -217,14 +276,14 @@ fun ScanScreen(
                             val grandTotal = uiState.currentBill?.grandTotal ?: 0.0
 
                             Text(
-                                text = "$totalCount Items in Bill",
+                                text = if (isReturn) "$totalCount Items to Return" else "$totalCount Items in Bill",
                                 style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                             )
                             Text(
-                                text = "₹${"%.2f".format(grandTotal)}",
+                                text = if (isReturn) "-₹${"%.2f".format(grandTotal)}" else "₹${"%.2f".format(grandTotal)}",
                                 style = MaterialTheme.typography.titleLarge.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = RedPrimary
+                                    color = if (isReturn) Color(0xFFD32F2F) else RedPrimary
                                 )
                             )
                         }
@@ -237,22 +296,24 @@ fun ScanScreen(
                                 onClick = { viewModel.openVoiceDialog() },
                                 modifier = Modifier
                                     .size(44.dp)
-                                    .background(RedPrimary.copy(alpha = 0.12f), CircleShape)
+                                    .background((if (isReturn) Color(0xFFD32F2F) else RedPrimary).copy(alpha = 0.12f), CircleShape)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Mic,
                                     contentDescription = "Voice Bill",
-                                    tint = RedPrimary
+                                    tint = if (isReturn) Color(0xFFD32F2F) else RedPrimary
                                 )
                             }
 
                             Button(
                                 onClick = { onNavigateToBilling(billId) },
                                 shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isReturn) Color(0xFFD32F2F) else AccentGreen
+                                ),
                                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
                             ) {
-                                Text("Review Bill", fontWeight = FontWeight.Bold)
+                                Text(if (isReturn) "Review Return" else "Review Bill", fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
@@ -263,6 +324,7 @@ fun ScanScreen(
                         }
                     }
                 }
+
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {

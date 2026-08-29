@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.smartvendor.ai.model.Bill
+import com.smartvendor.ai.model.BillItem
 import com.smartvendor.ai.repository.SalesRepository
 import com.smartvendor.ai.repository.SalesRepositoryImpl
 import com.smartvendor.ai.ui.theme.AccentGreen
@@ -169,12 +170,17 @@ fun BillHistoryCard(
     bill: Bill,
     onClick: () -> Unit
 ) {
+    val isReturn = bill.transactionType == Bill.TRANSACTION_TYPE_RETURN
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isReturn) Color(0xFFFFF5F5).copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface
+        ),
+        border = if (isReturn) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD32F2F).copy(alpha = 0.4f)) else null,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
@@ -184,26 +190,51 @@ fun BillHistoryCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Bill #${bill.billId.takeLast(8)}",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = if (isReturn) "RETURN #${bill.billId.takeLast(8)}" else "Bill #${bill.billId.takeLast(8)}",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = if (isReturn) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurface
+                        ),
+                        maxLines = 1
+                    )
+                    if (isReturn) {
+                        Surface(
+                            color = Color(0xFFD32F2F),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "RETURN",
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${bill.items.sumOf { it.quantity }} Items",
+                    text = "${bill.items.sumOf { it.quantity }} ${if (isReturn) "Items Returned" else "Items"}",
                     style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Surface(
-                    color = BluePrimary.copy(alpha = 0.12f),
+                    color = if (isReturn) Color(0xFFD32F2F).copy(alpha = 0.12f) else BluePrimary.copy(alpha = 0.12f),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = "MODE: ${bill.paymentMethod}",
+                        text = if (isReturn) "REFUND: ${bill.paymentMethod}" else "MODE: ${bill.paymentMethod}",
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         style = MaterialTheme.typography.labelSmall.copy(
-                            color = BluePrimary,
+                            color = if (isReturn) Color(0xFFD32F2F) else BluePrimary,
                             fontWeight = FontWeight.Bold
                         )
                     )
@@ -211,11 +242,13 @@ fun BillHistoryCard(
             }
 
             Text(
-                text = "₹${"%.2f".format(bill.grandTotal)}",
+                text = if (isReturn) "-₹${"%.2f".format(bill.grandTotal)}" else "₹${"%.2f".format(bill.grandTotal)}",
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Bold,
-                    color = AccentGreen
-                )
+                    color = if (isReturn) Color(0xFFD32F2F) else AccentGreen
+                ),
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -227,6 +260,7 @@ fun BillDetailDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val isReturn = bill.transactionType == Bill.TRANSACTION_TYPE_RETURN
     var showSendPrompt by remember { mutableStateOf(false) }
     var phoneInput by remember { mutableStateOf("") }
     val dailySmsCount = remember { SmsUtils.getDailySmsCount(context) }
@@ -243,20 +277,88 @@ fun BillDetailDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Invoice Details", fontWeight = FontWeight.Bold) },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (isReturn) "Return Receipt Details" else "Invoice Details",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (isReturn) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        color = Color(0xFFD32F2F),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "RETURN",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Bill ID: ${bill.billId}", fontWeight = FontWeight.Bold)
-                Text("Payment Method: ${bill.paymentMethod}")
+                Text("Transaction ID: ${bill.billId}", fontWeight = FontWeight.Bold)
+                Text(if (isReturn) "Refund Method: ${bill.paymentMethod}" else "Payment Method: ${bill.paymentMethod}")
                 HorizontalDivider()
-                Text("Items Purchased:", fontWeight = FontWeight.Bold)
+                Text(if (isReturn) "Items Returned:" else "Items Purchased:", fontWeight = FontWeight.Bold)
                 bill.items.forEach { item ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
                     ) {
-                        Text("${item.name} x${item.quantity}")
-                        Text("₹${"%.2f".format(item.lineTotal)}")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${item.name} ×${item.quantity}",
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (isReturn) "-₹${"%.2f".format(item.lineTotal)}" else "₹${"%.2f".format(item.lineTotal)}",
+                                color = if (isReturn) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                        if (isReturn) {
+                            val isGood = item.condition == BillItem.CONDITION_GOOD
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Surface(
+                                color = if (isGood) AccentGreen.copy(alpha = 0.15f) else Color(0xFFD32F2F).copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = if (isGood) "🟢 Restocked (+${item.quantity})" else "🔴 Damaged (Not Restocked)",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = if (isGood) AccentGreen else Color(0xFFFF5252),
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
                     }
                 }
                 HorizontalDivider()
@@ -264,8 +366,14 @@ fun BillDetailDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Grand Total", fontWeight = FontWeight.Bold)
-                    Text("₹${"%.2f".format(bill.grandTotal)}", fontWeight = FontWeight.Bold, color = BluePrimary)
+                    Text(if (isReturn) "Refund Total" else "Grand Total", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (isReturn) "-₹${"%.2f".format(bill.grandTotal)}" else "₹${"%.2f".format(bill.grandTotal)}",
+                        fontWeight = FontWeight.Bold,
+                        color = if (isReturn) Color(0xFFD32F2F) else BluePrimary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
 
                 if (showSendPrompt) {
@@ -297,11 +405,11 @@ fun BillDetailDialog(
                         },
                         enabled = !isLimitReached && phoneInput.length >= 10,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isReturn) Color(0xFFD32F2F) else BluePrimary)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("🚀 ", fontSize = 16.sp)
-                            Text("Send Silent SMS Receipt", fontWeight = FontWeight.Bold)
+                            Text(if (isReturn) "Send Return SMS Receipt" else "Send Silent SMS Receipt", fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -329,9 +437,13 @@ fun BillDetailDialog(
             if (!showSendPrompt) {
                 Button(
                     onClick = { showSendPrompt = true },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isReturn) Color(0xFFD32F2F) else BluePrimary
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Send Digital Receipt 📱", fontWeight = FontWeight.Bold)
+                    Text(if (isReturn) "Send Return Receipt 📱" else "Send Digital Receipt 📱", fontWeight = FontWeight.Bold)
                 }
             }
         },
@@ -342,3 +454,5 @@ fun BillDetailDialog(
         }
     )
 }
+
+

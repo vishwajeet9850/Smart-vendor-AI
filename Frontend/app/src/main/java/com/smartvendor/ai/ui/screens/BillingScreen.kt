@@ -65,10 +65,39 @@ fun BillingScreen(
         viewModel.loadBill(billId)
     }
 
+    val bill = uiState.bill
+    val isReturn = bill?.transactionType == Bill.TRANSACTION_TYPE_RETURN
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Billing Summary", fontWeight = FontWeight.Bold) },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (isReturn) "Return Summary" else "Billing Summary",
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (isReturn) {
+                            Surface(
+                                color = Color(0xFFD32F2F),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "RETURN",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -77,7 +106,7 @@ fun BillingScreen(
                 actions = {
                     if (!uiState.checkoutSuccess) {
                         IconButton(onClick = { viewModel.openVoiceDialog() }) {
-                            Icon(Icons.Default.Mic, contentDescription = "Voice Billing", tint = RedPrimary)
+                            Icon(Icons.Default.Mic, contentDescription = "Voice Billing", tint = if (isReturn) Color(0xFFD32F2F) else RedPrimary)
                         }
                     }
                 },
@@ -94,10 +123,8 @@ fun BillingScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            val bill = uiState.bill
-
             if (uiState.checkoutSuccess && bill != null) {
-                // Checkout Success View
+                // Checkout / Return Success View
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -121,17 +148,23 @@ fun BillingScreen(
                                 imageVector = Icons.Outlined.CheckCircle,
                                 contentDescription = "Success",
                                 modifier = Modifier.size(72.dp),
-                                tint = AccentGreen
+                                tint = if (isReturn) Color(0xFFD32F2F) else AccentGreen
                             )
 
                             Text(
-                                text = "Checkout Successful!",
+                                text = if (isReturn) "Return Completed!" else "Checkout Successful!",
                                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
                             )
 
                             Text(
-                                text = "Bill Total: ₹${if (bill.grandTotal % 1.0 == 0.0) bill.grandTotal.toInt() else bill.grandTotal}  •  ${bill.paymentMethod}",
-                                style = MaterialTheme.typography.titleMedium.copy(color = RedPrimary, fontWeight = FontWeight.Bold)
+                                text = if (isReturn)
+                                    "Refund Total: -₹${if (bill.grandTotal % 1.0 == 0.0) bill.grandTotal.toInt() else "%.2f".format(bill.grandTotal)}  •  ${bill.paymentMethod}"
+                                else
+                                    "Bill Total: ₹${if (bill.grandTotal % 1.0 == 0.0) bill.grandTotal.toInt() else "%.2f".format(bill.grandTotal)}  •  ${bill.paymentMethod}",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = if (isReturn) Color(0xFFD32F2F) else RedPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
                             )
 
                             Spacer(modifier = Modifier.height(4.dp))
@@ -143,14 +176,14 @@ fun BillingScreen(
                                     .fillMaxWidth()
                                     .height(48.dp),
                                 shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isReturn) Color(0xFFD32F2F) else RedPrimary)
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Send Digital Receipt", fontWeight = FontWeight.Bold, color = Color.White)
+                                Text(if (isReturn) "Send Return Receipt" else "Send Digital Receipt", fontWeight = FontWeight.Bold, color = Color.White)
                             }
 
-                            // 2. Scan New Bill
+                            // 2. Scan New Bill / Return
                             Button(
                                 onClick = onStartNewBill,
                                 modifier = Modifier
@@ -161,7 +194,7 @@ fun BillingScreen(
                             ) {
                                 Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.White)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Scan New Bill", fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("Scan Next Transaction", fontWeight = FontWeight.Bold, color = Color.White)
                             }
 
                             // 3. Return to Dashboard
@@ -191,9 +224,11 @@ fun BillingScreen(
                         items(bill.items, key = { it.productId }) { item ->
                             BillItemRow(
                                 item = item,
+                                isReturn = isReturn,
                                 onIncrease = { viewModel.increaseItemQuantity(item.productId) },
                                 onDecrease = { viewModel.decreaseItemQuantity(item.productId) },
-                                onDelete = { viewModel.removeItem(item.productId) }
+                                onDelete = { viewModel.removeItem(item.productId) },
+                                onConditionChange = { newCond -> viewModel.setItemCondition(item.productId, newCond) }
                             )
                         }
                     }
@@ -204,6 +239,7 @@ fun BillingScreen(
                         gst = bill.gst,
                         discount = bill.discount,
                         grandTotal = bill.grandTotal,
+                        isReturn = isReturn,
                         selectedPaymentMethod = uiState.selectedPaymentMethod,
                         isProcessing = uiState.isProcessingCheckout,
                         onPaymentMethodSelect = { viewModel.setPaymentMethod(it) },
@@ -231,11 +267,11 @@ fun BillingScreen(
                             tint = Color.Gray
                         )
                         Text(
-                            text = "Current Bill is Empty",
+                            text = if (isReturn) "Return Cart is Empty" else "Current Bill is Empty",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = "Scan products with camera or tap 'Voice Bill' to speak items.",
+                            text = if (isReturn) "Scan products to return or add manually." else "Scan products with camera or tap 'Voice Bill' to speak items.",
                             color = Color.Gray,
                             fontSize = 13.sp
                         )
@@ -245,11 +281,11 @@ fun BillingScreen(
                             }
                             Button(
                                 onClick = { viewModel.openVoiceDialog() },
-                                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isReturn) Color(0xFFD32F2F) else RedPrimary)
                             ) {
                                 Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Voice Bill")
+                                Text(if (isReturn) "Voice Return" else "Voice Bill")
                             }
                         }
                     }
@@ -295,72 +331,162 @@ fun BillingScreen(
 @Composable
 fun BillItemRow(
     item: BillItem,
+    isReturn: Boolean = false,
     onIncrease: () -> Unit,
     onDecrease: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onConditionChange: ((String) -> Unit)? = null
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+        border = BorderStroke(1.dp, if (isReturn) Color(0xFFD32F2F).copy(alpha = 0.35f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(14.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.name,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-                Text(
-                    text = "₹${if (item.unitPrice % 1.0 == 0.0) item.unitPrice.toInt() else item.unitPrice} each",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "₹${if (item.unitPrice % 1.0 == 0.0) item.unitPrice.toInt() else item.unitPrice} each",
+                        style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    IconButton(
+                        onClick = onDecrease,
+                        modifier = Modifier.size(32.dp),
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Text("-", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+
+                    Text(
+                        text = "${item.quantity}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        modifier = Modifier.padding(horizontal = 2.dp)
+                    )
+
+                    IconButton(
+                        onClick = onIncrease,
+                        modifier = Modifier.size(32.dp),
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Text("+", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+
+                    Text(
+                        text = if (isReturn) "-₹${if (item.lineTotal % 1.0 == 0.0) item.lineTotal.toInt() else "%.2f".format(item.lineTotal)}"
+                        else "₹${if (item.lineTotal % 1.0 == 0.0) item.lineTotal.toInt() else "%.2f".format(item.lineTotal)}",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = if (isReturn) Color(0xFFD32F2F) else RedPrimary
+                        ),
+                        modifier = Modifier.padding(start = 4.dp),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(20.dp))
+                    }
+                }
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                IconButton(
-                    onClick = onDecrease,
-                    modifier = Modifier.size(32.dp),
-                    colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            // Return condition toggle pills
+            if (isReturn) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("-", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
+                    Text(
+                        text = "Condition:",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
 
-                Text(
-                    text = "${item.quantity}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
+                    // 1. Good / Restock Pill
+                    val isGood = item.condition == BillItem.CONDITION_GOOD
+                    Surface(
+                        modifier = Modifier
+                            .clickable { onConditionChange?.invoke(BillItem.CONDITION_GOOD) },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isGood) AccentGreen.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = BorderStroke(
+                            width = if (isGood) 1.5.dp else 1.dp,
+                            color = if (isGood) AccentGreen else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text("🟢", fontSize = 10.sp)
+                            Text(
+                                text = "Good (Restock)",
+                                fontSize = 12.sp,
+                                fontWeight = if (isGood) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isGood) AccentGreen else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
 
-                IconButton(
-                    onClick = onIncrease,
-                    modifier = Modifier.size(32.dp),
-                    colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Text("+", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-
-                Text(
-                    text = "₹${if (item.lineTotal % 1.0 == 0.0) item.lineTotal.toInt() else item.lineTotal}",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = RedPrimary
-                    ),
-                    modifier = Modifier.padding(start = 8.dp)
-                )
-
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color.Red)
+                    // 2. Damaged Pill
+                    val isDamaged = item.condition == BillItem.CONDITION_DAMAGED
+                    Surface(
+                        modifier = Modifier
+                            .clickable { onConditionChange?.invoke(BillItem.CONDITION_DAMAGED) },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isDamaged) Color(0xFFD32F2F).copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = BorderStroke(
+                            width = if (isDamaged) 1.5.dp else 1.dp,
+                            color = if (isDamaged) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text("🔴", fontSize = 10.sp)
+                            Text(
+                                text = "Damaged",
+                                fontSize = 12.sp,
+                                fontWeight = if (isDamaged) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isDamaged) Color(0xFFFF6B6B) else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -373,6 +499,7 @@ fun BillingFooterCard(
     gst: Double,
     discount: Double,
     grandTotal: Double,
+    isReturn: Boolean = false,
     selectedPaymentMethod: String,
     isProcessing: Boolean,
     onPaymentMethodSelect: (String) -> Unit,
@@ -383,7 +510,7 @@ fun BillingFooterCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+        border = BorderStroke(1.dp, if (isReturn) Color(0xFFD32F2F).copy(alpha = 0.35f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
     ) {
         Column(
             modifier = Modifier
@@ -391,22 +518,31 @@ fun BillingFooterCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Payment Mode Chips
+            // Payment / Refund Mode Chips
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf("CASH", "UPI", "KHATA").forEach { mode ->
                     val isSelected = selectedPaymentMethod.equals(mode, ignoreCase = true)
+                    val labelText = if (isReturn) "$mode REFUND" else mode
                     FilterChip(
                         selected = isSelected,
                         onClick = {
                             onPaymentMethodSelect(mode)
-                            if (mode == "UPI") onShowUpiQr()
+                            if (mode == "UPI" && !isReturn) onShowUpiQr()
                         },
-                        label = { Text(mode, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            Text(
+                                text = labelText,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = RedPrimary,
+                            selectedContainerColor = if (isReturn) Color(0xFFD32F2F) else RedPrimary,
                             selectedLabelColor = Color.White
                         ),
                         shape = RoundedCornerShape(12.dp),
@@ -423,25 +559,29 @@ fun BillingFooterCard(
             ) {
                 Column {
                     Text(
-                        text = "Subtotal: ₹${if (subtotal % 1.0 == 0.0) subtotal.toInt() else subtotal}",
+                        text = if (isReturn) "Refund Subtotal: ₹${if (subtotal % 1.0 == 0.0) subtotal.toInt() else "%.2f".format(subtotal)}"
+                        else "Subtotal: ₹${if (subtotal % 1.0 == 0.0) subtotal.toInt() else "%.2f".format(subtotal)}",
                         style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
                     )
                     Text(
-                        text = "Grand Total",
+                        text = if (isReturn) "Refund Amount" else "Grand Total",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }
 
                 Text(
-                    text = "₹${if (grandTotal % 1.0 == 0.0) grandTotal.toInt() else grandTotal}",
+                    text = if (isReturn) "-₹${if (grandTotal % 1.0 == 0.0) grandTotal.toInt() else "%.2f".format(grandTotal)}"
+                    else "₹${if (grandTotal % 1.0 == 0.0) grandTotal.toInt() else "%.2f".format(grandTotal)}",
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = RedPrimary
-                    )
+                        color = if (isReturn) Color(0xFFD32F2F) else RedPrimary
+                    ),
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
 
-            // Checkout Button
+            // Action Button
             Button(
                 onClick = onCheckout,
                 enabled = !isProcessing && grandTotal > 0,
@@ -449,19 +589,22 @@ fun BillingFooterCard(
                     .fillMaxWidth()
                     .height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isReturn) Color(0xFFD32F2F) else RedPrimary
+                )
             ) {
                 if (isProcessing) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
                 } else {
-                    Icon(Icons.Default.Check, contentDescription = null)
+                    Icon(if (isReturn) Icons.Default.Refresh else Icons.Default.Check, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Complete Checkout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(if (isReturn) "Confirm Return & Refund" else "Complete Checkout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
     }
 }
+
 
 @Composable
 fun UpiPaymentQrDialog(

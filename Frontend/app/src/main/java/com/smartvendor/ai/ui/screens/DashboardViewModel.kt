@@ -2,10 +2,14 @@ package com.smartvendor.ai.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.smartvendor.ai.network.models.MarketTrendInsight
+import com.smartvendor.ai.network.models.StockRecommendationResponse
 import com.smartvendor.ai.repository.AuthRepository
 import com.smartvendor.ai.repository.AuthRepositoryImpl
 import com.smartvendor.ai.repository.SalesRepository
 import com.smartvendor.ai.repository.SalesRepositoryImpl
+import com.smartvendor.ai.repository.StockRecommendationRepository
+import com.smartvendor.ai.repository.StockRecommendationRepositoryImpl
 import com.smartvendor.ai.repository.StoreRepository
 import com.smartvendor.ai.repository.StoreRepositoryImpl
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +32,9 @@ data class DashboardUiState(
     val storeName: String = "SmartVendor Store",
     val openBillId: String? = null,
     val urgentStockAlerts: List<UrgentStockAlert> = emptyList(),
+    val stockRecommendations: List<StockRecommendationResponse> = emptyList(),
+    val marketTrends: List<MarketTrendInsight> = emptyList(),
+    val isRecommendationsLoading: Boolean = false,
     val showNotificationDialog: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null
@@ -37,7 +44,8 @@ class DashboardViewModel(
     private val authRepository: AuthRepository = AuthRepositoryImpl(),
     private val salesRepository: SalesRepository = SalesRepositoryImpl(),
     private val storeRepository: StoreRepository = StoreRepositoryImpl(),
-    private val productRepository: com.smartvendor.ai.repository.ProductRepository = com.smartvendor.ai.repository.ProductRepositoryImpl()
+    private val productRepository: com.smartvendor.ai.repository.ProductRepository = com.smartvendor.ai.repository.ProductRepositoryImpl(),
+    private val stockRecommendationRepository: StockRecommendationRepository = StockRecommendationRepositoryImpl()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -46,6 +54,8 @@ class DashboardViewModel(
     init {
         loadDashboardData()
         observeUrgentStockAlerts()
+        observeStockRecommendations()
+        refreshStockRecommendations()
     }
 
     private fun loadDashboardData() {
@@ -98,6 +108,37 @@ class DashboardViewModel(
         }
     }
 
+    private fun observeStockRecommendations() {
+        viewModelScope.launch {
+            stockRecommendationRepository.recommendationsFlow.collect { recs ->
+                _uiState.update { it.copy(stockRecommendations = recs) }
+            }
+        }
+        viewModelScope.launch {
+            stockRecommendationRepository.marketTrendsFlow.collect { trends ->
+                _uiState.update { it.copy(marketTrends = trends) }
+            }
+        }
+    }
+
+    fun refreshStockRecommendations(forecastDays: Int = 7) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRecommendationsLoading = true) }
+            stockRecommendationRepository.refreshRecommendations(forecastDays)
+            _uiState.update { it.copy(isRecommendationsLoading = false) }
+        }
+    }
+
+    fun quickRestockRecommended(productId: String, unitsToAdd: Int) {
+        viewModelScope.launch {
+            val rec = _uiState.value.stockRecommendations.firstOrNull { it.productId == productId }
+            val current = rec?.currentStock ?: 0
+            val target = current + maxOf(unitsToAdd, 10)
+            productRepository.updateStock(productId, target)
+            refreshStockRecommendations()
+        }
+    }
+
     private suspend fun checkOpenBillingSession() {
         val result = salesRepository.getOpenBillingSession()
         result.onSuccess { openBill ->
@@ -114,6 +155,7 @@ class DashboardViewModel(
             val alert = _uiState.value.urgentStockAlerts.firstOrNull { it.id == productId } ?: return@launch
             val target = alert.currentStock + addedUnits
             productRepository.updateStock(productId, target)
+            refreshStockRecommendations()
         }
     }
 

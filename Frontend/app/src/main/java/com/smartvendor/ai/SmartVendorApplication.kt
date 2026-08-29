@@ -6,6 +6,7 @@ import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.smartvendor.ai.network.NetworkMonitor
 import com.smartvendor.ai.repository.LocalStoreManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,10 +19,12 @@ class SmartVendorApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         Log.d(TAG, "SmartVendorApplication initializing core services & pre-warming...")
         
         // Initialize 100% Offline-First Local Store Manager
         LocalStoreManager.init(this)
+        NetworkMonitor.init(this)
 
         preWarmServices()
     }
@@ -47,5 +50,7 @@ class SmartVendorApplication : Application() {
 
     companion object {
         private const val TAG = "SmartVendorApp"
+        lateinit var instance: SmartVendorApplication
+            private set
     }
 }

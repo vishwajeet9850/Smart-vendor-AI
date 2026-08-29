@@ -88,6 +88,20 @@ interface ApiService {
         @Query("limit") limit: Int = 20
     ): Response<List<MasterCatalogResponse>>
 
+    // ─── Stock Recommendations & Market Intelligence ───────────────
+
+    @POST("api/stock/recommend")
+    suspend fun getStockRecommendation(@Body body: StockRecommendationRequest): Response<StockRecommendationResponse>
+
+    @GET("api/stock/recommendations")
+    suspend fun getBulkStockRecommendations(
+        @Query("forecast_days") forecastDays: Int = 7,
+        @Query("status_filter") statusFilter: String? = null
+    ): Response<BulkStockRecommendationResponse>
+
+    @GET("api/stock/market-trends")
+    suspend fun getMarketTrends(): Response<List<MarketTrendInsight>>
+
     // ─── Voice Transcription (Groq Whisper) ──────────────────────────
 
     @Multipart

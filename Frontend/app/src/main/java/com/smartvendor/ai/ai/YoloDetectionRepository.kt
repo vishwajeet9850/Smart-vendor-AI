@@ -5,9 +5,12 @@ import android.graphics.Matrix
 import android.util.Base64
 import android.util.Log
 import androidx.camera.core.ImageProxy
+import com.smartvendor.ai.SmartVendorApplication
 import com.smartvendor.ai.network.ApiClient
+import com.smartvendor.ai.network.NetworkMonitor
 import com.smartvendor.ai.network.models.YoloDetectRequest
 import com.smartvendor.ai.network.models.YoloDetectResponse
+import com.smartvendor.ai.network.models.YoloDetection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -17,37 +20,92 @@ class YoloDetectionRepository {
 
     private val api = ApiClient.apiService
     private val TAG = "YoloDetection"
+    private var localClassifier: TFLiteClassifier? = null
+
+    private suspend fun getLocalClassifier(): TFLiteClassifier? {
+        if (localClassifier == null) {
+            try {
+                val ctx = SmartVendorApplication.instance.applicationContext
+                val classifier = TFLiteClassifier(ctx)
+                classifier.initialize()
+                localClassifier = classifier
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initializing on-device TFLite classifier", e)
+            }
+        }
+        return localClassifier
+    }
 
     suspend fun detectFromBitmap(
         bitmap: Bitmap,
         confThreshold: Float = 0.50f
     ): YoloDetectResponse? = withContext(Dispatchers.IO) {
-        try {
-            val scaled = scaleBitmap(bitmap, maxDim = 480)
-            val base64Jpeg = bitmapToBase64Jpeg(scaled)
+        // 1. If online, attempt server detection
+        var serverResult: YoloDetectResponse? = null
+        if (NetworkMonitor.isOnline.value) {
+            try {
+                val scaled = scaleBitmap(bitmap, maxDim = 480)
+                val base64Jpeg = bitmapToBase64Jpeg(scaled)
 
-            // Allow 2500ms timeout for reliable initial connection handshake
-            withTimeoutOrNull(2500L) {
-                try {
-                    val response = api.detectFromBase64(
-                        YoloDetectRequest(image = base64Jpeg, conf = confThreshold)
-                    )
-                    if (response.isSuccessful) {
-                        val body = response.body()
-                        if (body != null && body.detections.isNotEmpty()) {
-                            Log.d(TAG, "Server YOLO found ${body.detections.size} products: ${body.detections.map { it.label }}")
-                            body
+                serverResult = withTimeoutOrNull(2000L) {
+                    try {
+                        val response = api.detectFromBase64(
+                            YoloDetectRequest(image = base64Jpeg, conf = confThreshold)
+                        )
+                        if (response.isSuccessful) {
+                            val body = response.body()
+                            if (body != null && body.detections.isNotEmpty()) {
+                                Log.d(TAG, "Server YOLO found ${body.detections.size} products: ${body.detections.map { it.label }}")
+                                body
+                            } else null
                         } else null
-                    } else null
-                } catch (e: Exception) {
-                    Log.e(TAG, "YOLO network request error", e)
-                    null
+                    } catch (e: Exception) {
+                        Log.d(TAG, "Server YOLO request error, falling back to local: ${e.message}")
+                        null
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Server YOLO error: ${e.message}")
+            }
+        }
+
+        if (serverResult != null && serverResult.detections.isNotEmpty()) {
+            return@withContext serverResult
+        }
+
+        // 2. 100% Offline On-Device YOLO Fallback via TFLite (best.tflite)
+        try {
+            val classifier = getLocalClassifier()
+            if (classifier != null) {
+                val localDetections = classifier.detect(bitmap, confThreshold)
+                if (localDetections.isNotEmpty()) {
+                    val yoloItems = localDetections.map { det ->
+                        val normBox = listOf(
+                            det.boundingBox.left / bitmap.width.toFloat(),
+                            det.boundingBox.top / bitmap.height.toFloat(),
+                            det.boundingBox.right / bitmap.width.toFloat(),
+                            det.boundingBox.bottom / bitmap.height.toFloat()
+                        )
+                        YoloDetection(
+                            label = det.label,
+                            confidence = det.confidence,
+                            bbox = normBox
+                        )
+                    }
+                    val top = yoloItems.maxByOrNull { it.confidence }
+                    Log.d(TAG, "Offline On-Device YOLO found ${yoloItems.size} products: ${yoloItems.map { it.label }}")
+                    return@withContext YoloDetectResponse(
+                        detections = yoloItems,
+                        topLabel = top?.label,
+                        topConfidence = top?.confidence
+                    )
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "YOLO Bitmap processing error", e)
-            null
+            Log.e(TAG, "Offline on-device YOLO detection error", e)
         }
+
+        return@withContext null
     }
 
     suspend fun detectFromImageProxy(

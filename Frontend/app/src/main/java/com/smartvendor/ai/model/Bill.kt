@@ -7,6 +7,7 @@ data class Bill(
     val billId: String = "",
     val cashierId: String = "",
     val storeId: String = "",
+    val transactionType: String = TRANSACTION_TYPE_BILL, // BILL, RETURN
     val items: List<BillItem> = emptyList(),
     val subtotal: Double = 0.0,
     val gst: Double = 0.0,
@@ -20,5 +21,9 @@ data class Bill(
         const val BILL_STATUS_OPEN = "OPEN"
         const val BILL_STATUS_COMPLETED = "COMPLETED"
         const val BILL_STATUS_CANCELLED = "CANCELLED"
+
+        const val TRANSACTION_TYPE_BILL = "BILL"
+        const val TRANSACTION_TYPE_RETURN = "RETURN"
     }
 }
+

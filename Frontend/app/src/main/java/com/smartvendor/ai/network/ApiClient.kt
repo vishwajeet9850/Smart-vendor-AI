@@ -21,7 +21,7 @@ object ApiClient {
         val token = runBlocking {
             try {
                 FirebaseAuth.getInstance().currentUser
-                    ?.getIdToken(true)
+                    ?.getIdToken(false)
                     ?.await()
                     ?.token
             } catch (e: Exception) {
@@ -29,6 +29,7 @@ object ApiClient {
                 null
             }
         }
+
 
         val newRequest = if (token != null) {
             request.newBuilder()
@@ -53,10 +54,11 @@ object ApiClient {
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(firebaseTokenInterceptor)
         .addInterceptor(loggingInterceptor)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
         .build()
+
 
     val apiService: ApiService by lazy {
         Retrofit.Builder()

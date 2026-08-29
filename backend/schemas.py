@@ -86,13 +86,17 @@ class BillItemCreate(BaseModel):
     quantity: int
     unit_price: float
     total_price: float
+    condition: Optional[str] = "GOOD"  # GOOD, DAMAGED
 
 
 class BillCreate(BaseModel):
+    id: Optional[str] = None
+    transaction_type: Optional[str] = "BILL"  # BILL, RETURN
     items: List[BillItemCreate]
     total_amount: float
     tax_amount: float = 0.0
     payment_mode: str = "cash"
+    created_at: Optional[datetime] = None
 
 
 class BillItemResponse(BaseModel):
@@ -102,6 +106,7 @@ class BillItemResponse(BaseModel):
     quantity: int
     unit_price: float
     total_price: float
+    condition: str = "GOOD"
 
     model_config = {"from_attributes": True}
 
@@ -109,6 +114,7 @@ class BillItemResponse(BaseModel):
 class BillResponse(BaseModel):
     id: str
     user_id: str
+    transaction_type: str = "BILL"
     total_amount: float
     tax_amount: float
     payment_mode: str
@@ -116,6 +122,7 @@ class BillResponse(BaseModel):
     items: List[BillItemResponse] = []
 
     model_config = {"from_attributes": True}
+
 
 
 # ─── Analytics Schemas ─────────────────────────────────────────────────────────
@@ -142,6 +149,11 @@ class StockRecommendationItem(BaseModel):
     sales_velocity: str = "Moderate"
     reasoning: str = "Stock level requires attention based on sales velocity."
     urgency_level: str = "MEDIUM"
+    recommendation_type: str = "RESTOCK"
+    recommendation_title: str = "Restock Recommendation"
+    action_type: str = "RESTOCK"
+    action_label: str = "Order Stock"
+    simple_reason: str = ""
 
 
 class MarketTrendInsight(BaseModel):
@@ -161,6 +173,59 @@ class AnalyticsSummary(BaseModel):
     daily_revenue: List[DailyRevenue]
     stock_recommendations: List[StockRecommendationItem] = []
     market_trends: List[MarketTrendInsight] = []
+
+
+# ─── Stock Recommendation & Market Intelligence Schemas ───────────────────────
+
+class StockRecommendationRequest(BaseModel):
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None
+    forecast_days: int = 7
+
+
+class MarketDemandInfo(BaseModel):
+    market_insight_available: bool = True
+    demand_level: str = "NORMAL"  # LOW, NORMAL, HIGH, VERY_HIGH
+    comparison_percentage: float = 100.0
+    market_average_sales: float = 0.0
+    participating_vendors: int = 0
+    insight_text: Optional[str] = None
+
+
+class StockRecommendationResponse(BaseModel):
+    product_id: str
+    product_name: str
+    category: str = "General"
+    current_stock: int
+    predicted_daily_demand: float
+    predicted_demand: int
+    safety_stock: int
+    target_stock: int
+    recommended_purchase: int
+    status: str  # RESTOCK, LOW_STOCK, STOCK_OK, OVERSTOCK
+    trend: str  # INCREASING, STABLE, DECREASING
+    seasonal_profile: str = "STABLE"  # STABLE, SEASONAL, TRENDING, FESTIVAL_SENSITIVE
+    seasonal_factor: float = 1.0
+    supplier_moq: int = 1
+    unit: str = "pcs"
+    market: MarketDemandInfo
+    reason: str
+    recommendation_type: str = "URGENT_RESTOCK"
+    recommendation_title: str = "🚨 Urgent Restock"
+    action_type: str = "RESTOCK"
+    action_label: str = "Order Stock"
+    simple_reason: str = ""
+
+
+class BulkStockRecommendationResponse(BaseModel):
+    recommendations: List[StockRecommendationResponse]
+    total_products: int
+    restock_count: int
+    low_stock_count: int
+    overstock_count: int
+    optimal_count: int
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 
 

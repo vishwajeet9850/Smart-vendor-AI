@@ -69,15 +69,20 @@ data class BillItemRequest(
     @SerializedName("product_name") val productName: String,
     val quantity: Int,
     @SerializedName("unit_price") val unitPrice: Double,
-    @SerializedName("total_price") val totalPrice: Double
+    @SerializedName("total_price") val totalPrice: Double,
+    val condition: String = "GOOD"
 )
 
 data class BillRequest(
+    val id: String? = null,
+    @SerializedName("transaction_type") val transactionType: String = "BILL",
     val items: List<BillItemRequest>,
     @SerializedName("total_amount") val totalAmount: Double,
     @SerializedName("tax_amount") val taxAmount: Double = 0.0,
-    @SerializedName("payment_mode") val paymentMode: String = "cash"
+    @SerializedName("payment_mode") val paymentMode: String = "cash",
+    @SerializedName("created_at") val createdAt: String? = null
 )
+
 
 data class BillItemResponse(
     val id: String,
@@ -85,18 +90,21 @@ data class BillItemResponse(
     @SerializedName("product_name") val productName: String,
     val quantity: Int,
     @SerializedName("unit_price") val unitPrice: Double,
-    @SerializedName("total_price") val totalPrice: Double
+    @SerializedName("total_price") val totalPrice: Double,
+    val condition: String = "GOOD"
 )
 
 data class BillResponse(
     val id: String,
     @SerializedName("user_id") val userId: String,
+    @SerializedName("transaction_type") val transactionType: String = "BILL",
     @SerializedName("total_amount") val totalAmount: Double,
     @SerializedName("tax_amount") val taxAmount: Double,
     @SerializedName("payment_mode") val paymentMode: String,
     @SerializedName("created_at") val createdAt: String,
     val items: List<BillItemResponse> = emptyList()
 )
+
 
 // ─── Analytics ─────────────────────────────────────────────────────────────────
 
@@ -121,8 +129,14 @@ data class StockRecommendationItemResponse(
     @SerializedName("peak_window") val peakWindow: String = "General Demand",
     @SerializedName("sales_velocity") val salesVelocity: String = "Moderate",
     val reasoning: String = "",
-    @SerializedName("urgency_level") val urgencyLevel: String = "MEDIUM"
+    @SerializedName("urgency_level") val urgencyLevel: String = "MEDIUM",
+    @SerializedName("recommendation_type") val recommendationType: String = "RESTOCK",
+    @SerializedName("recommendation_title") val recommendationTitle: String = "Restock Recommendation",
+    @SerializedName("action_type") val actionType: String = "RESTOCK",
+    @SerializedName("action_label") val actionLabel: String = "Order Stock",
+    @SerializedName("simple_reason") val simpleReason: String = ""
 )
+
 
 data class MarketTrendInsightResponse(
     val title: String,
